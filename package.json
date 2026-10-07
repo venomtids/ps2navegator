@@ -8,6 +8,8 @@
   },
   "scripts": {
     "start": "node server.js",
+    "catalog:build": "node scripts/build-catalog.mjs",
+    "test:catalog": "node tests/catalog.cjs",
     "test:smoke": "node tests/smoke.cjs",
     "test:installer": "node tests/installer.cjs",
     "test:installer-ui": "node tests/installer-ui.cjs"

@@ -12,47 +12,47 @@
   "responses": [
     [
       200,
-      "http://127.0.0.1:3002/emulator/adapter.js"
+      "http://127.0.0.1:3000/emulator/adapter.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/host.html"
+      "http://127.0.0.1:3000/emulator/host.html"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/host.js"
+      "http://127.0.0.1:3000/emulator/host.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.js"
+      "http://127.0.0.1:3000/emulator/play/Play.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.js"
+      "http://127.0.0.1:3000/emulator/play/Play.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.wasm"
+      "http://127.0.0.1:3000/emulator/play/Play.wasm"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.js"
+      "http://127.0.0.1:3000/emulator/play/Play.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.js"
+      "http://127.0.0.1:3000/emulator/play/Play.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.js"
+      "http://127.0.0.1:3000/emulator/play/Play.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.js"
+      "http://127.0.0.1:3000/emulator/play/Play.js"
     ],
     [
       200,
-      "http://127.0.0.1:3002/emulator/play/Play.js"
+      "http://127.0.0.1:3000/emulator/play/Play.js"
     ]
   ]
 }

@@ -6,3 +6,4 @@ games/
 *.7z
 tests/installer-fixture-*/
 tests/dashboard.png
+.cache/

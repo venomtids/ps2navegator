@@ -138,6 +138,8 @@ app.get('/api/stream-iso', api(async (req, res, signal) => {
 app.use('/api/game', require('./game-installer').router(
   process.env.GAME_DIR || path.join(__dirname, 'games', 'gta-sa-ps2')
 ));
+// Catálogo local de metadados de PS2 + busca de itens no Internet Archive.
+app.use('/api/catalog', require('./catalog').router());
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 // Coloque um adaptador real e seus assets nesta pasta; não é exposto nenhum outro diretório.
 app.use('/emulator', express.static(path.join(__dirname, 'emulator'), { dotfiles: 'deny' }));

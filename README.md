@@ -58,6 +58,39 @@ O campo avançado aceita outro link direto HTTPS autorizado nos hosts permitidos
 
 Use somente conteúdo que tenha autorização para utilizar. Ao parar ou recarregar, o estado de emulação é perdido: saves persistentes não estão implementados.
 
+## Biblioteca PS2
+
+O painel traz um catálogo local com **10.740 discos de PS2** (praticamente a biblioteca comercial completa),
+chaveados pelo **serial** que o próprio `SYSTEM.CNF` do disco informa — o mesmo `SLUS_209.46` que já
+usávamos para identificar o GTA.
+
+- Busca por título, serial, desenvolvedora ou publicadora (termos combinados com AND).
+- Filtro por região (`NTSC-U/C`, `NTSC-J`, `PAL`, …) e ordenação por nome, lançamento ou nota.
+- Paginação de 48 em 48, servida pelo backend — o navegador nunca carrega o catálogo inteiro.
+- Ao selecionar um jogo, você pode **localizar itens públicos no Internet Archive** e escolher qual
+  montar por setores, sem baixar a ISO inteira.
+
+**O catálogo contém somente metadados.** Nenhuma ROM, ISO ou link de download é distribuído com o projeto.
+Você continua responsável por usar apenas conteúdo que tenha autorização para utilizar.
+
+### Fonte dos dados
+
+| | |
+|---|---|
+| Banco | [GDX-X/OPL-Games-Infos-Database-Project](https://github.com/GDX-X/OPL-Games-Infos-Database-Project) |
+| Origens | Redump.org (títulos), PlayStation DataCenter, ScreenScraper.fr |
+| Arquivo | `data/ps2-catalog.json` (2,4 MB, gerado) |
+| Regenerar | `npm run catalog:build -- --fetch` |
+
+O gerador (`scripts/build-catalog.mjs`) lê `PS2DB_PT.xml` / `PS2DB_EN.xml` e produz o JSON compacto com
+dicionários para região, gênero, desenvolvedora e publicadora. O serial é normalizado
+(`SLUS_209.46`, `slus-20946` e `SLUS 209.46` colapsam para a mesma chave), o que permite casar o boot
+do disco com a entrada do catálogo.
+
+Endpoints: `GET /api/catalog/search`, `/api/catalog/facets`, `/api/catalog/serial/:serial`,
+`/api/catalog/archive/search` e `/api/catalog/archive/files`. Os dois últimos consultam o Internet
+Archive e só aceitam HTTPS em `archive.org`.
+
 ## Teclado
 
 | Teclas | Controle PS2 |
@@ -150,4 +183,8 @@ Use `TEST_URL` para outro endereço de servidor. A ISO inválida é gerada em me
 - `emulator/adapter.js`: ciclo de vida e ponte entre launcher e núcleo.
 - `emulator/host.html` / `host.js`: canvas, inicialização do Play!, CDVD, WASD e limpeza.
 - `emulator/play/`: núcleo oficial pré-compilado, licença e procedência.
-- `tests/smoke.cjs`: teste automatizado.
+- `catalog.js`: catálogo de metadados e busca de itens no Internet Archive.
+- `data/ps2-catalog.json`: catálogo gerado (10.740 discos, só metadados).
+- `scripts/build-catalog.mjs`: gerador do catálogo a partir do banco OPL.
+- `tests/smoke.cjs`: teste de navegador (WASM real, disco inválido, teclado).
+- `tests/catalog.cjs`: testes do catálogo, sem rede nem navegador.

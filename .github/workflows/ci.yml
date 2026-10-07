@@ -24,5 +24,8 @@ jobs:
           node --check server.js
           node --check game-installer.js
 
+      - name: Testes do catálogo
+        run: npm run test:catalog
+
       - name: Testes do instalador
         run: npm run test:installer
