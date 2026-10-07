@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SECTOR // PS2 NEXUS</title>
+<!-- CSS próprio e autocontido: o painel continua utilizável sem nenhum CDN. -->
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#04070e; --bg2:#070c16;
+  --panel:rgba(9,15,26,.72); --panel2:rgba(6,11,20,.9);
+  --line:rgba(53,240,255,.16); --line2:rgba(53,240,255,.38);
+  --neon:#35f0ff; --violet:#a855f7; --hot:#ff3d7f; --lime:#8fff5a;
+  --text:#dceaf8; --muted:#7b90a8; --dim:#6b7f96;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{
+  margin:0; color:var(--text);
+  font:14px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:var(--bg);
+  overflow-x:hidden;
+}
+/* ---------- cenário: grade em perspectiva + aurora + scanlines ---------- */
+.bg,.bg::before,.bg::after{position:fixed;pointer-events:none;z-index:0}
+.bg{inset:0;overflow:hidden;background:
+  radial-gradient(900px 600px at 12% -8%, rgba(53,240,255,.16), transparent 60%),
+  radial-gradient(800px 620px at 108% 4%, rgba(168,85,247,.16), transparent 62%),
+  radial-gradient(1000px 700px at 50% 118%, rgba(255,61,127,.10), transparent 60%),
+  linear-gradient(180deg,var(--bg2),var(--bg) 55%,#02040a)}
+.bg::before{
+  content:'';left:-25%;right:-25%;bottom:-10%;height:75%;
+  background-image:
+    linear-gradient(rgba(53,240,255,.20) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(53,240,255,.14) 1px,transparent 1px);
+  background-size:100% 46px,46px 100%;
+  transform:perspective(560px) rotateX(70deg);
+  transform-origin:bottom center;
+  mask-image:linear-gradient(to top,#000 8%,transparent 78%);
+  animation:drift 14s linear infinite;opacity:.55;
+}
+@keyframes drift{to{background-position:0 46px,46px 0}}
+.bg::after{
+  content:'';inset:0;
+  background:repeating-linear-gradient(180deg,rgba(255,255,255,.028) 0 1px,transparent 1px 3px);
+  mix-blend-mode:overlay;opacity:.5;
+}
+main{position:relative;z-index:1;max-width:1520px;margin:auto;padding:30px 26px 40px}
+
+/* ---------- HUD superior ---------- */
+.hud{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:20px;
+  flex-wrap:wrap;padding-bottom:18px;margin-bottom:26px;
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:16px}
+.sigil{
+  width:46px;height:46px;flex:none;position:relative;
+  border:1px solid var(--line2);border-radius:12px;
+  background:radial-gradient(circle at 50% 50%,rgba(53,240,255,.30),transparent 68%);
+  box-shadow:0 0 26px rgba(53,240,255,.24),inset 0 0 18px rgba(53,240,255,.14);
+}
+.sigil::before,.sigil::after{content:'';position:absolute;inset:0;margin:auto;background:var(--neon);box-shadow:0 0 12px var(--neon)}
+.sigil::before{width:20px;height:1px}
+.sigil::after{width:1px;height:20px}
+.logo{font-size:27px;font-weight:800;letter-spacing:9px;margin:0;line-height:1;
+  text-shadow:0 0 24px rgba(53,240,255,.5)}
+.logo span{color:var(--neon);opacity:.85}
+.sub{margin:6px 0 0;font:600 10px/1 var(--mono);letter-spacing:3.4px;color:var(--dim)}
+.leds{display:flex;gap:8px;flex-wrap:wrap}
+.led{
+  font:600 9.5px/1 var(--mono);letter-spacing:1.6px;padding:8px 11px;border-radius:4px;
+  border:1px solid var(--line);color:var(--dim);background:rgba(8,13,22,.7);
+  display:inline-flex;align-items:center;gap:7px;transition:.25s;white-space:nowrap;
+}
+.led::before{content:'';width:6px;height:6px;border-radius:50%;background:#20303f;transition:.25s;flex:none}
+.led.on{color:var(--neon);border-color:var(--line2);background:rgba(53,240,255,.07)}
+.led.on::before{background:var(--neon);box-shadow:0 0 9px var(--neon)}
+.led.hot{color:var(--hot);border-color:rgba(255,61,127,.42);background:rgba(255,61,127,.08)}
+.led.hot::before{background:var(--hot);box-shadow:0 0 9px var(--hot)}
+.led.warn{color:#ffcf5a;border-color:rgba(255,207,90,.38)}
+.led.warn::before{background:#ffcf5a;box-shadow:0 0 9px #ffcf5a}
+
+/* ---------- grade e painéis ---------- */
+.layout{display:grid;grid-template-columns:308px 1fr;gap:20px}
+.stack{display:grid;gap:20px;align-content:start}
+.card{
+  position:relative;padding:20px 20px 18px;
+  background:linear-gradient(180deg,rgba(12,20,33,.86),var(--panel));
+  border:1px solid var(--line);border-radius:3px;
+  backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
+  clip-path:polygon(0 12px,12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%);
+  transition:border-color .25s,box-shadow .25s;
+}
+.card:hover{border-color:var(--line2);box-shadow:0 0 0 1px rgba(53,240,255,.06),0 14px 40px -22px rgba(53,240,255,.5)}
+.card::after{
+  content:'';position:absolute;inset:7px;pointer-events:none;opacity:.5;
+  background:
+    linear-gradient(var(--neon),var(--neon)) 0 0/13px 1px no-repeat,
+    linear-gradient(var(--neon),var(--neon)) 0 0/1px 13px no-repeat,
+    linear-gradient(var(--neon),var(--neon)) 100% 0/13px 1px no-repeat,
+    linear-gradient(var(--neon),var(--neon)) 100% 0/1px 13px no-repeat,
+    linear-gradient(var(--neon),var(--neon)) 0 100%/13px 1px no-repeat,
+    linear-gradient(var(--neon),var(--neon)) 0 100%/1px 13px no-repeat,
+    linear-gradient(var(--neon),var(--neon)) 100% 100%/13px 1px no-repeat,
+    linear-gradient(var(--neon),var(--neon)) 100% 100%/1px 13px no-repeat;
+}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+h2{font:700 10.5px/1 var(--mono);letter-spacing:2.6px;color:#9fb4cc;margin:0}
+h2::before{content:'// ';color:var(--neon);opacity:.75}
+p{line-height:1.62;margin:0 0 12px}
+.muted,.notice{color:var(--muted)}
+.notice{font-size:11.5px;line-height:1.55;margin:0;color:var(--dim)}
+.notice b{color:#a8bdd4;font-weight:600}
+.tag{
+  display:inline-block;padding:5px 10px;border-radius:3px;font:600 9px/1.25 var(--mono);
+  letter-spacing:1.5px;color:var(--neon);border:1px solid var(--line2);
+  background:rgba(53,240,255,.07);white-space:nowrap;
+}
+.tag.violet{color:var(--violet);border-color:rgba(168,85,247,.4);background:rgba(168,85,247,.08)}
+.tag.hot{color:var(--hot);border-color:rgba(255,61,127,.4);background:rgba(255,61,127,.08)}
+.value{font:700 30px/1 var(--mono);letter-spacing:-.5px;margin:12px 0 4px;color:#fff;
+  text-shadow:0 0 22px rgba(53,240,255,.45)}
+.value.small{font-size:22px}
+.accent{color:var(--neon);text-shadow:0 0 18px rgba(53,240,255,.6)}
+label{display:block;font:600 9.5px/1.4 var(--mono);letter-spacing:1.7px;color:var(--dim);margin:0 0 7px}
+button,input,select{
+  font:inherit;border-radius:3px;border:1px solid var(--line);padding:11px 13px;
+  background:rgba(6,11,20,.85);color:inherit;transition:.2s;
+}
+input,select{width:100%;margin:0 0 14px}
+input:focus,select:focus{outline:none;border-color:var(--neon);box-shadow:0 0 0 3px rgba(53,240,255,.12)}
+input::placeholder{color:#405266}
+button{
+  cursor:pointer;font:600 12px/1 system-ui;letter-spacing:.3px;
+  background:linear-gradient(180deg,rgba(53,240,255,.10),rgba(53,240,255,.03));
+  position:relative;overflow:hidden;
+}
+button:hover:not(:disabled){
+  border-color:var(--neon);color:#eaf9ff;
+  box-shadow:0 0 22px -4px rgba(53,240,255,.55);transform:translateY(-1px);
+}
+button:active:not(:disabled){transform:translateY(0)}
+button:disabled{opacity:.35;cursor:not-allowed}
+.primary{
+  background:linear-gradient(180deg,var(--neon),#12c6dd);color:#032028;
+  border-color:var(--neon);font-weight:700;
+  box-shadow:0 0 26px -6px rgba(53,240,255,.75);
+}
+.primary:hover:not(:disabled){box-shadow:0 0 34px -4px rgba(53,240,255,.95)}
+.wide{width:100%}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.actions{display:flex;flex-wrap:wrap;gap:9px}
+
+/* ---------- tela do emulador ---------- */
+.screen{
+  position:relative;background:#01040a;border:1px solid var(--line2);border-radius:3px;
+  overflow:hidden;aspect-ratio:16/9;margin:16px 0;
+  box-shadow:0 0 0 1px rgba(0,0,0,.6),0 30px 70px -40px rgba(53,240,255,.9),inset 0 0 90px rgba(0,0,0,.9);
+}
+canvas{width:100%;height:100%;display:block;background:#01040a}
+.crt{
+  position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:repeating-linear-gradient(180deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);
+  box-shadow:inset 0 0 120px rgba(0,0,0,.85);
+  animation:flick 5.5s steps(60) infinite;opacity:.55;
+}
+@keyframes flick{0%,96%{opacity:.55}97%{opacity:.42}98%{opacity:.6}100%{opacity:.5}}
+.overlay{
+  position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;text-align:center;padding:26px;pointer-events:none;
+  background:radial-gradient(circle at 50% 45%,rgba(6,14,26,.82),rgba(2,4,10,.94));
+}
+.overlay.hidden{display:none}
+.glyph{font-size:58px;color:var(--neon);text-shadow:0 0 46px rgba(53,240,255,.85);animation:breathe 3.4s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.42;transform:scale(.94)}}
+.overlay h3{margin:14px 0 6px;font:700 13px/1.4 var(--mono);letter-spacing:2.4px;color:#cfe6f7}
+
+/* ---------- leitor de disco ---------- */
+.disc{
+  width:104px;height:104px;margin:6px auto 20px;border-radius:50%;position:relative;
+  background:
+    radial-gradient(circle at 50% 50%,transparent 26%,rgba(0,0,0,.55) 27%),
+    conic-gradient(from 0deg,#123043,#5ef0d6,#1b3a52,#9d8cff,#2a4a63,#5ef0d6,#123043);
+  box-shadow:0 0 34px rgba(53,240,255,.34),inset 0 0 24px rgba(0,0,0,.7);
+}
+.disc::before{
+  content:'';position:absolute;inset:-9px;border-radius:50%;
+  border:1px solid rgba(53,240,255,.22);
+}
+.disc::after{
+  content:'';position:absolute;inset:40px;border-radius:50%;
+  background:radial-gradient(circle,#0a1220,#04080f);
+  border:1px solid rgba(53,240,255,.4);
+}
+.spinning{animation:spin 1.05s linear infinite}
+.spinning::before{border-color:rgba(53,240,255,.6);box-shadow:0 0 22px rgba(53,240,255,.4)}
+@keyframes spin{to{transform:rotate(360deg)}}
+progress{
+  -webkit-appearance:none;appearance:none;width:100%;height:7px;margin:14px 0 10px;
+  border:1px solid var(--line);border-radius:2px;background:rgba(4,8,15,.9);overflow:hidden;
+}
+progress::-webkit-progress-bar{background:transparent}
+progress::-webkit-progress-value{
+  background:linear-gradient(90deg,#12c6dd,var(--neon),#a855f7);
+  box-shadow:0 0 14px rgba(53,240,255,.85);
+}
+progress::-moz-progress-bar{background:linear-gradient(90deg,#12c6dd,var(--neon),#a855f7)}
+progress:indeterminate::-webkit-progress-value{background:linear-gradient(90deg,transparent,var(--neon),transparent)}
+
+/* ---------- telemetria ---------- */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:18px}
+.stats>div{
+  padding:13px;border-radius:3px;border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(6,12,22,.9),rgba(4,8,15,.6));
+}
+.stats small{display:block;font:600 8.5px/1.3 var(--mono);letter-spacing:1.5px;color:var(--dim)}
+.stats strong{display:block;margin-top:7px;font:700 17px/1 var(--mono);color:#e8f6ff}
+
+/* ---------- biblioteca ---------- */
+.lib-controls{display:grid;grid-template-columns:1fr 190px 170px;gap:11px;margin-bottom:16px}
+.lib-controls input,.lib-controls select{margin:0}
+.lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:11px;margin-bottom:14px}
+.lib-item{
+  text-align:left;padding:13px 14px;border-radius:3px;border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(10,18,31,.9),rgba(5,10,18,.7));
+  cursor:pointer;transition:.2s;position:relative;overflow:hidden;
+}
+.lib-item:hover:not(:disabled){
+  border-color:var(--neon);transform:translateY(-2px);
+  box-shadow:0 0 26px -8px rgba(53,240,255,.8);
+}
+.lib-item.sel{border-color:var(--violet);box-shadow:0 0 0 1px rgba(168,85,247,.5),0 0 26px -8px rgba(168,85,247,.8)}
+.lib-item b{display:block;font-size:13px;font-weight:600;line-height:1.35;margin-bottom:7px;color:#e6f3ff}
+.lib-item .meta{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.lib-item .ser{font:600 9.5px/1 var(--mono);letter-spacing:1.1px;color:var(--violet)}
+.lib-item .reg{font:600 8.5px/1 var(--mono);letter-spacing:1.1px;color:var(--dim);border:1px solid var(--line);padding:4px 6px;border-radius:2px}
+.lib-item .yr{margin-left:auto;font:600 9px/1 var(--mono);color:var(--dim)}
+.lib-pager{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lib-pager small{font:600 10px/1 var(--mono);letter-spacing:1.2px;color:var(--dim)}
+.hidden{display:none!important}
+.detail{margin-top:16px;padding-top:16px;border-top:1px dashed var(--line)}
+.detail h3{margin:0 0 4px;font-size:16px;color:#fff;font-weight:700}
+.detail .meta-line{font:600 10px/1.6 var(--mono);letter-spacing:1.1px;color:var(--dim);margin-bottom:10px}
+.detail .desc{font-size:12.5px;color:var(--muted);margin-bottom:14px}
+.src-list{display:grid;gap:8px;margin:12px 0}
+.src-item{
+  display:flex;align-items:center;gap:11px;text-align:left;padding:10px 12px;border-radius:3px;
+  border:1px solid var(--line);background:rgba(6,11,20,.8);cursor:pointer;transition:.2s;font:inherit;color:inherit;
+}
+.src-item:hover:not(:disabled){border-color:var(--neon);box-shadow:0 0 20px -8px rgba(53,240,255,.8)}
+.src-item .nm{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.src-item .sz{font:600 10px/1 var(--mono);color:var(--dim);flex:none}
+.spinner{
+  width:15px;height:15px;flex:none;border:2px solid rgba(53,240,255,.22);
+  border-top-color:var(--neon);border-radius:50%;animation:spin .8s linear infinite;
+}
+
+/* ---------- terminal de eventos ---------- */
+.term{
+  background:linear-gradient(180deg,rgba(3,7,13,.96),rgba(2,5,10,.9));
+  border:1px solid var(--line);border-radius:3px;padding:14px;
+  font:500 11.5px/1.75 var(--mono);color:#9fe8dd;min-height:96px;max-height:210px;overflow:auto;
+  white-space:pre-wrap;overflow-wrap:anywhere;
+}
+.term::before{content:'sector@ps2:~$ ';color:var(--violet);opacity:.9}
+#log::after{content:'▊';color:var(--neon);animation:blink 1.1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+footer{padding-top:26px;font:600 9.5px/1.7 var(--mono);letter-spacing:1.6px;color:#3d4c5e}
+.pulse{animation:pulse .6s infinite alternate}
+@keyframes pulse{to{opacity:.4}}
+details{margin-top:16px}
+summary{
+  cursor:pointer;font:600 10px/1 var(--mono);letter-spacing:1.7px;color:var(--dim);
+  padding:9px 0;list-style:none;
+}
+summary::-webkit-details-marker{display:none}
+summary::before{content:'▸ ';color:var(--neon)}
+details[open] summary::before{content:'▾ '}
+a{color:var(--neon);text-decoration:none}
+a:hover{text-decoration:underline}
+.tag.link{padding:9px 13px}
+
+@media(max-width:1040px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .lib-controls{grid-template-columns:1fr}
+  .stats{grid-template-columns:1fr}
+  main{padding:22px 15px 30px}
+  .hud{gap:14px}
+  .logo{font-size:21px;letter-spacing:6px}
+}
+@media(prefers-reduced-motion:reduce){
+  .bg::before,.glyph,.crt,#log::after,.spinner,.spinning{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<main>
+<header class="hud">
+  <div class="brand"><div class="sigil"></div><div>
+    <h1 class="logo">SECTOR<span>//</span></h1>
+    <p class="sub">PS2 NEXUS · REMOTE DISC SYSTEM</p>
+  </div></div>
+  <div class="leds">
+    <span class="led" id="ledDisc">DISC</span>
+    <span class="led" id="ledCore">CORE</span>
+    <span class="led" id="ledLib">LIB</span>
+    <span class="led" id="ledIso">ISOLAMENTO</span>
+  </div>
+</header>
+
+<div class="layout">
+<aside class="stack sidebar">
+<section class="card"><div class="card-head"><h2>Memória do leitor</h2><span class="tag">RAM</span></div>
+  <div class="value" id="ramValue">8 MiB</div>
+  <p class="muted">Limite real do cache de setores. Não representa a RAM disponível ao emulador.</p>
+  <button id="ram" class="wide">Maximizar Memória RAM</button>
+  <p class="notice">Animação simulada; limpa somente este cache. Não libera RAM do sistema.</p></section>
+
+<section class="card"><div class="card-head"><h2>Perfil gráfico virtual</h2><span class="tag violet">GPU</span></div>
+  <select id="gpu"><option>RTX 4070</option><option>RX 7800 XT</option></select>
+  <div class="value accent small" id="clock">— MHz</div>
+  <button id="tune" class="wide">Simular alta performance</button>
+  <p class="notice">Clock e GPU são apenas visuais. Nenhum hardware é criado ou acelerado.</p></section>
+
+<section class="card"><div class="card-head"><h2>Leitor de CD / DVD</h2><span class="tag" id="speed">0×</span></div>
+  <div class="disc" id="disc"></div>
+  <div class="row"><span id="discStatus" role="status">Sem disco</span></div>
+  <progress id="buffer" max="100" value="0"></progress>
+  <div class="row"><small class="notice">Cache LRU do leitor</small><small id="bufferText" class="notice">0 / 8 MiB</small></div>
+  <p class="notice">Rotação 4× simulada durante leituras. Taxa de rede medida no painel.</p></section>
+</aside>
+
+<div class="stack">
+<section class="card"><div class="card-head"><h2>Console virtual</h2><span class="tag" id="engine">PLAY! · PRONTO PARA INICIAR</span></div>
+  <div class="screen">
+    <canvas id="canvas" width="1280" height="720" aria-label="Tela do emulador"></canvas>
+    <div class="crt"></div>
+    <div id="overlay" class="overlay"><div class="glyph">◎</div>
+      <h3>SEU DISCO. SETOR POR SETOR.</h3>
+      <p class="muted">Play! WASM integrado · PS2 experimental<br>Selecione uma ISO local, monte uma ISO remota ou escolha um jogo na biblioteca.</p>
+    </div></div>
+  <div class="actions"><button id="play" class="primary" disabled>Iniciar Play!</button><button id="test" disabled>Testar leitura de setor</button><button id="stop" disabled>Parar</button><button id="fullscreen">Tela cheia</button></div>
+  <div class="stats">
+    <div><small>RECEBIDOS NESTA MONTAGEM</small><strong id="received">0 MiB</strong></div>
+    <div><small>ÚLTIMA LEITURA DE DADOS</small><strong id="rate">0 MiB/s</strong></div>
+    <div><small>ISOLAMENTO WASM</small><strong id="isolation">Verificando</strong></div>
+  </div></section>
+
+<section class="card"><div class="card-head"><h2>Biblioteca PS2</h2><span class="tag violet" id="libCount">CARREGANDO…</span></div>
+  <p class="notice">Metadados de <b id="libTotal">—</b> discos de PS2 (Redump · PSXDatacenter · ScreenScraper). <b>Nenhuma ROM, ISO ou link de download é distribuído aqui.</b> Selecione um jogo para identificar seu disco ou localizar um item público no Internet Archive e montá-lo por setores.</p>
+  <div class="lib-controls">
+    <input id="catalogSearch" type="search" placeholder="Buscar título, serial, desenvolvedora…" autocomplete="off">
+    <select id="catalogRegion"><option value="">Todas as regiões</option></select>
+    <select id="catalogSort">
+      <option value="title">Ordenar A–Z</option>
+      <option value="release">Mais recentes</option>
+      <option value="rating">Melhor avaliados</option>
+    </select>
+  </div>
+  <div id="catalogList" class="lib-grid"></div>
+  <div class="lib-pager">
+    <button id="catalogPrev">◀ Anterior</button>
+    <small id="catalogInfo">—</small>
+    <button id="catalogNext">Próxima ▶</button>
+  </div>
+  <div id="catalogDetail" class="detail hidden"></div>
+  <p class="notice" style="margin-top:14px">Fonte: <a href="https://github.com/GDX-X/OPL-Games-Infos-Database-Project" target="_blank" rel="noopener noreferrer">GDX-X/OPL-Games-Infos-Database-Project</a>. Use apenas conteúdo que você tenha autorização para utilizar.</p></section>
+
+<section class="card"><div class="card-head"><h2>GTA San Andreas · PS2 USA v3.00</h2><span class="tag hot">INSTALAÇÃO SOB DEMANDA</span></div>
+  <p class="muted">ISO de PS2 confirmada: SLUS_209.46 · NTSC · 4,52 GB. O jogo não vem no projeto. Escolha leitura por setores ou download completo sob demanda.</p>
+  <div class="actions"><button id="streamGta" class="primary">Jogar por setores</button><button id="install">Baixar e iniciar GTA</button><button id="installCancel" disabled>Cancelar instalação</button><a class="tag link" href="https://archive.org/details/grand-theft-auto-san-andreas-usa-v-3.00_202401" target="_blank" rel="noopener noreferrer">Abrir origem ↗</a></div>
+  <p id="installStatus" role="status">Consultando instalação local…</p><progress id="installProgress" max="100" value="0"></progress><small id="installBytes">Nenhum download iniciado.</small>
+  <details><summary>Origem bloqueada? Informar link direto autorizado</summary>
+    <p class="notice">O endereço do Archive já está configurado. Deixe o campo vazio para usá-lo. Outros links exigem acesso público e formato compatível; não contornamos login ou bloqueios.</p>
+    <label for="downloadUrl">Link HTTPS do arquivo .zip, .7z ou .iso</label>
+    <input id="downloadUrl" type="url" placeholder="https://…/Jogo.zip (opcional)">
+    <label for="archivePassword">Senha do pacote (se exigida)</label>
+    <input id="archivePassword" type="password" value="" autocomplete="off">
+    <small class="notice">Hosts permitidos: romsfun.com, romsfast.com e archive.org.</small></details>
+  <p class="notice" style="margin-top:12px">Use conteúdo autorizado. “Jogar por setores” usa HTTP Range sem baixar tudo primeiro. “Baixar e iniciar” grava 4,52 GB no servidor e valida o SHA-1 antes de iniciar. Não exige extração para esta ISO. Compatibilidade e desempenho no Play! ainda não foram confirmados para este jogo. <a href="https://github.com/jpd002/Play-" target="_blank" rel="noopener noreferrer">Núcleo Play!</a></p></section>
+
+<section class="card"><div class="card-head"><h2>Selecionar ISO do computador</h2><span class="tag">LOCAL</span></div>
+  <label for="localIso">ISO de PS2 não compactada — leitura local por setores, sem upload</label>
+  <input id="localIso" type="file" accept=".iso">
+  <button id="mountLocal" class="primary">Montar ISO local</button>
+  <p class="notice">Play! usa BIOS emulada internamente; não precisa de arquivo de BIOS. O leitor mantém cache de até 8 MiB, separado da memória usada pelo núcleo.</p></section>
+
+<section class="card"><div class="card-head"><h2>Teclado / controles</h2><span class="tag" id="fps">0 FPS · aguardando núcleo</span></div>
+  <p class="muted"><b>W A S D</b> · analógico esquerdo &nbsp; <b>Setas</b> · direcional<br><b>J / K / U / I</b> · ✕ / ○ / □ / △ &nbsp; <b>Enter</b> · Start &nbsp; <b>Bksp</b> · Select<br><b>Q / E</b> · L1 / R1 &nbsp; <b>1 / 3</b> · L2 / R2</p>
+  <p class="notice">Clique na tela do jogo para ativar teclado e áudio. Mapeamento de controle PS2, não controles nativos de PC. Mouse não controla a câmera. Saves não persistem nesta integração: parar encerra a VM.</p></section>
+
+<section class="card"><div class="card-head"><h2>Montar disco remoto</h2><span class="tag">RANGE</span></div>
+  <label for="item">Identificador do item no Internet Archive</label>
+  <input id="item" placeholder="identificador-do-seu-homebrew" autocomplete="off">
+  <label for="file">Caminho exato da ISO dentro do item</label>
+  <input id="file" placeholder="pasta/Jogo.iso" autocomplete="off">
+  <div class="actions"><button id="mount" class="primary">Montar ISO</button><button id="eject" disabled>Ejetar</button></div>
+  <p class="notice">Somente ISOs públicas não compactadas, homebrew ou conteúdo autorizado. ZIP/CHD e arquivos restritos não são aceitos. O tamanho é consultado lendo apenas o byte zero.</p></section>
+
+<section class="card"><div class="card-head"><h2>Eventos do sistema</h2><span class="tag violet">TTY</span></div>
+  <div class="term" id="log" role="status" aria-live="polite">Pronto. Nenhum jogo ou BIOS incluído.</div></section>
+</div></div>
+<footer>SECTOR NEXUS // CACHE LIMITADO · FILA ASSÍNCRONA · BACKPRESSURE · SEM BANCO DE DADOS · SÓ METADADOS</footer>
+</main>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const MiB = 1024 * 1024;
+const events = [];
+const log = text => {
+  events.push(String(text));
+  if (events.length > 12) events.shift();
+  $('log').textContent = events.join('\n');
+  $('log').style.whiteSpace = 'pre-wrap';
+};
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const abortError = () => new DOMException('Leitor encerrado.', 'AbortError');
+const led = (id, on, kind = 'on') => { const e = $(id); e.className = 'led' + (on ? ' ' + kind : ''); };
+
+class RemoteDisc {
+  constructor(query, size, update) {
+    this.url = '/api/stream-iso?' + query;
+    this.size = size;
+    this.sectorSize = 2048;
+    this.block = 256 * 1024;
+    this.limit = 8 * MiB;
+    this.used = 0;
+    this.received = 0;
+    this.rate = 0;
+    this.cache = new Map();
+    this.pending = 0;
+    this.tail = Promise.resolve();
+    this.controller = new AbortController();
+    this.update = update;
+  }
+  clear() { this.cache.clear(); this.used = 0; this.emit(); }
+  dispose() { this.controller.abort(); this.clear(); }
+  check() { if (this.controller.signal.aborted) throw abortError(); }
+  emit(extra = {}) { this.update({ used: this.used, limit: this.limit, received: this.received, rate: this.rate, ...extra }); }
+  // O contrato assíncrono evita Promise.all ilimitado e permite Asyncify/JSPI ou worker bridge.
+  read(offset, length) {
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 1 ||
+        length > 2 * MiB || offset + length > this.size)
+      return Promise.reject(new Error('Leitura deve estar no disco e ter entre 1 byte e 2 MiB.'));
+    if (this.pending >= 32) return Promise.reject(new Error('Fila cheia: aguarde as leituras anteriores.'));
+    this.pending++;
+    const job = this.tail.then(() => this.perform(offset, length));
+    this.tail = job.catch(() => {});
+    return job.finally(() => { this.pending--; });
+  }
+  async perform(offset, length) {
+    this.check();
+    this.emit({ busy: true, sector: Math.floor(offset / this.sectorSize) });
+    try {
+      const output = new Uint8Array(length);
+      let written = 0;
+      while (written < length) {
+        this.check();
+        const pos = offset + written;
+        const base = Math.floor(pos / this.block) * this.block;
+        let data = this.cache.get(base);
+        if (data) { this.cache.delete(base); this.cache.set(base, data); }
+        else {
+          data = await this.load(base, Math.min(this.block, this.size - base));
+          while (this.used + data.length > this.limit && this.cache.size) {
+            const key = this.cache.keys().next().value;
+            this.used -= this.cache.get(key).length;
+            this.cache.delete(key);
+          }
+          this.cache.set(base, data); this.used += data.length;
+        }
+        const from = pos - base, count = Math.min(length - written, data.length - from);
+        output.set(data.subarray(from, from + count), written);
+        written += count;
+        this.emit();
+      }
+      return output;
+    } finally { this.emit({ busy: false }); }
+  }
+  async fetchPart(start, length) {
+    this.check();
+    const local = new AbortController();
+    const abort = () => local.abort();
+    this.controller.signal.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, 25000);
+    const began = performance.now();
+    try {
+      const end = start + length - 1;
+      const r = await fetch(this.url, { headers: { Range: `bytes=${start}-${end}` }, signal: local.signal });
+      if (!r.ok) {
+        const message = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
+        throw Object.assign(new Error(message), { fatal: [400, 401, 403, 404, 416].includes(r.status) });
+      }
+      if (r.status !== 206 || r.headers.get('content-range') !== `bytes ${start}-${end}/${this.size}` ||
+          Number(r.headers.get('content-length')) !== length) {
+        await r.body?.cancel();
+        throw new Error('Range recebido não corresponde ao solicitado.');
+      }
+      // Leitura incremental limitada; não usa arrayBuffer() sobre resposta sem limite.
+      const output = new Uint8Array(length), reader = r.body.getReader();
+      let n = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (n + value.byteLength > length) throw new Error('Resposta excedeu o limite.');
+          output.set(value, n); n += value.byteLength;
+          this.received += value.byteLength;
+        }
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      if (n !== length) throw new Error('Leitura incompleta.');
+      this.rate = length / MiB / Math.max((performance.now() - began) / 1000, .001);
+      return output;
+    } finally {
+      clearTimeout(timer);
+      this.controller.signal.removeEventListener('abort', abort);
+      local.abort();
+    }
+  }
+  async load(start, length) {
+    // Fallback real: subdivisão iterativa, tentativas limitadas e backoff, sem recursão.
+    const output = new Uint8Array(length);
+    let pos = 0, step = this.block, failures = 0;
+    while (pos < length) {
+      this.check();
+      const count = Math.min(step, length - pos);
+      try {
+        output.set(await this.fetchPart(start + pos, count), pos);
+        pos += count; failures = 0;
+      } catch (e) {
+        this.check();
+        if (e.fatal || ++failures > 3) throw e;
+        step = Math.max(16 * 1024, Math.floor(step / 2));
+        await sleep(500 * 2 ** (failures - 1) + Math.random() * 200);
+      }
+    }
+    return output;
+  }
+}
+// Reuses bounded queue/cache but reads only Blob slices. No upload, no full ISO buffer.
+class LocalDisc extends RemoteDisc {
+  constructor(file, update) { super('', file.size, update); this.file = file; }
+  async fetchPart(start, length) {
+    this.check();
+    const began = performance.now();
+    const bytes = new Uint8Array(await this.file.slice(start, start + length).arrayBuffer());
+    this.check();
+    if (bytes.byteLength !== length) throw new Error('Arquivo local incompleto ou inacessível.');
+    this.received += bytes.length;
+    this.rate = length / MiB / Math.max((performance.now() - began) / 1000, .001);
+    return bytes;
+  }
+}
+let disc = null, emulator = null, testOffset = 0;
+function telemetry(s) {
+  $('buffer').value = s.used / s.limit * 100;
+  $('bufferText').textContent = `${(s.used / MiB).toFixed(2)} / ${s.limit / MiB} MiB`;
+  $('received').textContent = `${(s.received / MiB).toFixed(2)} MiB`;
+  $('rate').textContent = `${s.rate.toFixed(2)} MiB/s`;
+  if (s.busy !== undefined) {
+    $('disc').classList.toggle('spinning', s.busy);
+    $('speed').textContent = s.busy ? '4×' : '0×';
+    $('discStatus').textContent = s.busy ? `Lendo setor ${s.sector}…` : 'Disco pronto';
+    led('ledDisc', !!s.busy);
+  }
+}
+function controls() {
+  $('install').disabled = !!emulator;
+  $('streamGta').disabled = !!emulator;
+  $('play').disabled = !disc || !!emulator;
+  $('test').disabled = !disc || !!emulator;
+  $('stop').disabled = !emulator;
+  $('eject').disabled = !disc;
+}
+// Serializa ações de UI; não mistura troca de disco com inicialização do núcleo.
+let locked = false;
+function action(id, fn) {
+  $(id).onclick = async () => {
+    if (locked) return;
+    locked = true;
+    const ids = ['streamGta', 'install', 'mount', 'mountLocal', 'eject', 'play', 'test', 'stop'];
+    ids.forEach(i => $(i).disabled = true);
+    try { await fn(); } catch (e) { log(e.message); }
+    finally { locked = false; $('mount').disabled = false; $('mountLocal').disabled = false; controls(); }
+  };
+}
+async function stopCore() {
+  const running = emulator; emulator = null;
+  if (running) await running.stop();
+  $('overlay').classList.remove('hidden');
+  $('engine').textContent = 'PLAY! · PARADO';
+  $('fps').textContent = '0 FPS · núcleo parado';
+  led('ledCore', false);
+}
+action('mountLocal', async () => {
+  const file = $('localIso').files[0];
+  if (!file || !/\.iso$/i.test(file.name)) throw new Error('Selecione uma ISO de PS2 extraída, não ZIP/7z/RAR ou instalador de Windows.');
+  if (file.size < 34816) throw new Error('Arquivo pequeno demais para uma imagem ISO de PS2.');
+  const signature = new TextDecoder().decode(await file.slice(32769, 32774).arrayBuffer());
+  if (signature !== 'CD001') throw new Error('Cabeçalho ISO9660 não encontrado. Confirme o formato do disco.');
+  await stopCore();
+  disc?.dispose();
+  disc = new LocalDisc(file, telemetry);
+  disc.emit({ busy: false }); testOffset = 0;
+  log(`ISO local: ${file.name} · ${(file.size / MiB).toFixed(2)} MiB. Clique em Iniciar Play!.`);
+});
+async function mountRemote() {
+  await stopCore();
+  disc?.dispose(); disc = null;
+  $('discStatus').textContent = 'Consultando disco…';
+  const query = new URLSearchParams({ item: $('item').value.trim(), file: $('file').value.trim() });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 50000);
+  try {
+    const r = await fetch('/api/disc?' + query, { signal: controller.signal });
+    const info = await r.json();
+    if (!r.ok) throw new Error(info.error || 'Não foi possível montar o disco.');
+    disc = new RemoteDisc(query.toString(), info.size, telemetry);
+    disc.emit({ busy: false }); testOffset = 0;
+    log(`Disco montado: ${(info.size / MiB).toFixed(2)} MiB. Nenhuma ISO integral foi baixada.`);
+  } catch (e) { $('discStatus').textContent = 'Sem disco'; throw e; }
+  finally { clearTimeout(timer); }
+}
+action('mount', mountRemote);
+action('streamGta', async () => {
+  const config = await gameAPI('config');
+  $('item').value = config.item; $('file').value = config.file;
+  await mountRemote();
+  await launchCore();
+});
+action('test', async () => {
+  const length = Math.min(2048, disc.size - testOffset);
+  const bytes = await disc.read(testOffset, length);
+  const hex = Array.from(bytes.subarray(0, 16), b => b.toString(16).padStart(2, '0')).join(' ');
+  log(`Setor ${Math.floor(testOffset / 2048)} · ${bytes.length} bytes · ${hex} · teste de transporte, não emulação.`);
+  testOffset = (testOffset + length) % disc.size;
+});
+action('eject', async () => {
+  await stopCore(); disc?.dispose(); disc = null;
+  $('discStatus').textContent = 'Sem disco'; log('Disco ejetado; cache descartado.');
+  led('ledDisc', false);
+});
+action('stop', async () => { await stopCore(); log('Núcleo parado.'); });
+async function launchCore() {
+  const { createPS2 } = await import('/emulator/adapter.js');
+  const mounted = disc;
+  let failed = false;
+  const instance = await createPS2({
+    canvas: $('canvas'),
+    disc: { size: mounted.size, sectorSize: 2048, read: (offset, length) => mounted.read(offset, length) },
+    onStatus: log,
+    onFPS: fps => { $('fps').textContent = `${fps} FPS · medido pelo núcleo`; },
+    onError: error => {
+      failed = true;
+      log(`Falha: ${error.message}`);
+      if (emulator === instance) void stopCore().finally(() => { if (!locked) controls(); });
+    }
+  });
+  $('engine').textContent = 'PLAY! · INICIALIZANDO';
+  led('ledCore', true);
+  try {
+    await instance.start();
+    if (failed) throw new Error('O núcleo interrompeu o boot. Confira os eventos.');
+  } catch (error) {
+    await instance.stop(); $('engine').textContent = 'PLAY! · FALHA'; led('ledCore', false, 'hot'); throw error;
+  }
+  emulator = instance;
+  $('overlay').classList.add('hidden'); $('engine').textContent = 'PLAY! · VM INICIADA';
+  log('Boot solicitado. Clique na tela para teclado e áudio. FPS/compatibilidade dependem do jogo e do dispositivo.');
+}
+action('play', launchCore);
+function showInstall(state) {
+  $('installStatus').textContent = state.message;
+  $('installCancel').disabled = !state.busy || state.phase === 'cancelling';
+  const extracting = state.phase === 'extracting';
+  const current = extracting ? state.extracted : state.downloaded;
+  const total = extracting ? state.isoSize : state.total;
+  $('installProgress').value = state.phase === 'ready' ? 100 : (total ? current / total * 100 : 0);
+  if (state.busy && !total) $('installProgress').removeAttribute('value');
+  $('installBytes').textContent = state.phase === 'ready'
+    ? `ISO instalada: ${(state.isoSize / MiB).toFixed(0)} MiB · reutilizada no próximo início.`
+    : `${extracting ? 'Extraído' : 'Baixado'}: ${(current / MiB).toFixed(1)} MiB${total ? ' / ' + (total / MiB).toFixed(1) + ' MiB' : ''}`;
+  $('install').textContent = state.phase === 'ready' ? 'Iniciar GTA instalado' : state.busy ? 'Acompanhar e iniciar' : 'Baixar e iniciar GTA';
+}
+async function gameAPI(route, body) {
+  const response = await fetch('/api/game/' + route, {
+    ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(15000)
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Falha ao comunicar com instalador.');
+  return result;
+}
+action('install', async () => {
+  let state = await gameAPI('status');
+  if (!state.busy && state.phase !== 'ready') {
+    state = await gameAPI('install', { url: $('downloadUrl').value.trim(), password: $('archivePassword').value });
+  }
+  while (true) {
+    showInstall(state);
+    if (state.phase === 'ready') break;
+    if (!state.busy) throw new Error(state.message);
+    await sleep(1000);
+    state = await gameAPI('status');
+  }
+  const info = await gameAPI('disc');
+  await stopCore(); disc?.dispose();
+  disc = new RemoteDisc('', info.size, telemetry);
+  disc.url = '/api/game/stream';
+  disc.emit({ busy: false }); testOffset = 0;
+  log('ISO instalada montada. Iniciando Play! com leitura por setores…');
+  await launchCore();
+});
+$('installCancel').onclick = async () => {
+  $('installCancel').disabled = true;
+  try { showInstall(await gameAPI('cancel', {})); }
+  catch (error) { log(error.message); }
+};
+// Config/status only: opening/reloading never downloads ISO bytes.
+gameAPI('config').then(config => {
+  if (!$('item').value) $('item').value = config.item;
+  if (!$('file').value) $('file').value = config.file;
+}).catch(error => log(error.message));
+gameAPI('status').then(showInstall).catch(error => { $('installStatus').textContent = error.message; });
+$('ram').onclick = async () => {
+  $('ram').disabled = true; $('ram').classList.add('pulse'); $('ram').textContent = 'Limpando cache do leitor…';
+  try {
+    await sleep(900); disc?.clear();
+    $('ramValue').textContent = '8 MiB';
+    log('Cache do leitor limpo. RAM do navegador e do sistema não foi ampliada.');
+  } finally { $('ram').disabled = false; $('ram').classList.remove('pulse'); $('ram').textContent = 'Maximizar Memória RAM'; }
+};
+$('tune').onclick = async () => {
+  $('tune').disabled = true; $('clock').classList.add('pulse');
+  await sleep(900);
+  $('clock').textContent = ($('gpu').selectedIndex ? '2430' : '2475') + ' MHz';
+  $('clock').classList.remove('pulse'); $('tune').disabled = false;
+  log(`Perfil ${$('gpu').value}: clock simulado, sem efeito sobre o hardware.`);
+};
+$('fullscreen').onclick = () => document.querySelector('.screen').requestFullscreen?.().catch(e => log(e.message));
+$('isolation').textContent = crossOriginIsolated ? 'SAB disponível' : 'Sem SharedArrayBuffer';
+led('ledIso', crossOriginIsolated, crossOriginIsolated ? 'on' : 'warn');
+window.addEventListener('pagehide', () => disc?.dispose());
+
+/* ===================== Biblioteca PS2 (somente metadados) ===================== */
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const jsonAPI = async url => {
+  const r = await fetch(url, { signal: AbortSignal.timeout(25000) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Falha ao consultar o catálogo.');
+  return data;
+};
+const lib = { page: 0, pageSize: 48, total: 0, selected: null };
+const yearOf = release => (String(release).match(/\d{4}/) || [''])[0];
+
+async function loadCatalog(reset = true) {
+  if (reset) lib.page = 0;
+  const params = new URLSearchParams({
+    q: $('catalogSearch').value.trim(), region: $('catalogRegion').value,
+    sort: $('catalogSort').value, page: String(lib.page), pageSize: String(lib.pageSize)
+  });
+  const data = await jsonAPI('/api/catalog/search?' + params);
+  lib.total = data.total;
+  $('catalogInfo').textContent = data.total
+    ? `${data.page * data.pageSize + 1}–${Math.min((data.page + 1) * data.pageSize, data.total)} de ${data.total.toLocaleString('pt-BR')}`
+    : 'Nenhum resultado';
+  $('catalogPrev').disabled = data.page === 0;
+  $('catalogNext').disabled = (data.page + 1) * data.pageSize >= data.total;
+  $('catalogList').innerHTML = data.games.map((g, i) => `
+    <button type="button" class="lib-item${lib.selected && lib.selected.serial === g.serial ? ' sel' : ''}" data-i="${i}">
+      <b>${esc(g.title || g.titleEn || g.serial)}</b>
+      <span class="meta">
+        <span class="ser">${esc(g.serial)}</span>
+        ${g.region ? `<span class="reg">${esc(g.region)}</span>` : ''}
+        ${yearOf(g.release) ? `<span class="yr">${esc(yearOf(g.release))}</span>` : ''}
+      </span>
+    </button>`).join('') || '<p class="notice">Nada encontrado com esses filtros.</p>';
+  const shown = data.games;
+  $('catalogList').querySelectorAll('.lib-item').forEach(el => {
+    el.onclick = () => selectGame(shown[Number(el.dataset.i)]);
+  });
+  led('ledLib', true);
+}
+
+function renderDetail(html) {
+  $('catalogDetail').classList.remove('hidden');
+  $('catalogDetail').innerHTML = html;
+}
+
+async function selectGame(game) {
+  lib.selected = game;
+  $('catalogList').querySelectorAll('.lib-item').forEach(el => {
+    el.classList.toggle('sel', el.querySelector('.ser').textContent === game.serial);
+  });
+  const meta = [game.region, game.vmode && game.vmode.toUpperCase(), yearOf(game.release), game.developer, game.publisher, game.genre]
+    .filter(Boolean).map(esc).join(' · ');
+  renderDetail(`
+    <h3>${esc(game.title || game.titleEn)}</h3>
+    <div class="meta-line">${esc(game.serial)} · ${meta || '—'}</div>
+    ${game.description ? `<div class="desc">${esc(game.description)}</div>` : ''}
+    <div class="actions">
+      <button type="button" id="libArchive" class="primary">Localizar no Internet Archive</button>
+      <button type="button" id="libCopy">Copiar serial</button>
+    </div>
+    <div id="libSources"></div>
+    <p class="notice" style="margin-top:12px">O catálogo guarda apenas metadados. A busca consulta o Internet Archive em busca de itens públicos; você escolhe qual montar e é responsável por usar apenas conteúdo autorizado.</p>`);
+  $('libArchive').onclick = () => findArchive(game);
+  $('libCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText(game.serial); log(`Serial ${game.serial} copiado.`); }
+    catch { log(`Serial: ${game.serial}`); }
+  };
+}
+
+async function findArchive(game) {
+  const box = $('libSources');
+  box.innerHTML = '<div class="row"><span class="notice">Consultando o Internet Archive…</span><span class="spinner"></span></div>';
+  try {
+    const data = await jsonAPI('/api/catalog/archive/search?q=' + encodeURIComponent(game.title || game.titleEn));
+    if (!data.items.length) {
+      box.innerHTML = '<p class="notice">Nenhum item público encontrado no Internet Archive para este título.</p>';
+      return;
+    }
+    box.innerHTML = '<div class="meta-line" style="margin-top:14px">ITENS PÚBLICOS ENCONTRADOS</div><div class="src-list">' +
+      data.items.map(it => `<button type="button" class="src-item" data-item="${esc(it.identifier)}">
+        <span class="nm">${esc(it.title)}</span>
+        <span class="sz">${it.downloads ? it.downloads.toLocaleString('pt-BR') + ' ↓' : ''}</span></button>`).join('') + '</div>';
+    box.querySelectorAll('.src-item').forEach(el => { el.onclick = () => pickItem(el.dataset.item); });
+  } catch (e) {
+    box.innerHTML = `<p class="notice">${esc(e.message)}</p>`;
+  }
+}
+
+async function pickItem(item) {
+  const box = $('libSources');
+  box.innerHTML = '<div class="row"><span class="notice">Lendo arquivos do item…</span><span class="spinner"></span></div>';
+  try {
+    const data = await jsonAPI('/api/catalog/archive/files?item=' + encodeURIComponent(item));
+    if (!data.files.length) {
+      box.innerHTML = '<p class="notice">Esse item não expõe uma ISO não compactada.</p>';
+      return;
+    }
+    box.innerHTML = '<div class="meta-line" style="margin-top:14px">ISOS DENTRO DO ITEM</div><div class="src-list">' +
+      data.files.map(f => `<button type="button" class="src-item" data-item="${esc(data.item)}" data-file="${esc(f.name)}">
+        <span class="nm">${esc(f.name)}</span>
+        <span class="sz">${(f.size / MiB).toFixed(0)} MiB</span></button>`).join('') + '</div>';
+    box.querySelectorAll('.src-item').forEach(el => {
+      el.onclick = () => {
+        $('item').value = el.dataset.item;
+        $('file').value = el.dataset.file;
+        log(`Origem definida: ${el.dataset.item} → ${el.dataset.file}. Clique em Montar ISO.`);
+        $('catalogDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        document.querySelector('#item').focus();
+      };
+    });
+  } catch (e) {
+    box.innerHTML = `<p class="notice">${esc(e.message)}</p>`;
+  }
+}
+
+let debounce;
+$('catalogSearch').oninput = () => {
+  clearTimeout(debounce);
+  debounce = setTimeout(() => loadCatalog().catch(e => log(e.message)), 280);
+};
+$('catalogRegion').onchange = () => loadCatalog().catch(e => log(e.message));
+$('catalogSort').onchange = () => loadCatalog().catch(e => log(e.message));
+$('catalogPrev').onclick = () => { if (lib.page > 0) { lib.page--; loadCatalog(false).catch(e => log(e.message)); } };
+$('catalogNext').onclick = () => { lib.page++; loadCatalog(false).catch(e => log(e.message)); };
+
+jsonAPI('/api/catalog/facets').then(f => {
+  $('libCount').textContent = `${f.count.toLocaleString('pt-BR')} DISCOS`;
+  $('libTotal').textContent = f.count.toLocaleString('pt-BR');
+  const options = f.region.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  $('catalogRegion').insertAdjacentHTML('beforeend', options);
+  log(`Biblioteca PS2 carregada: ${f.count.toLocaleString('pt-BR')} discos (somente metadados).`);
+}).catch(e => {
+  $('libCount').textContent = 'INDISPONÍVEL';
+  $('catalogList').innerHTML = `<p class="notice">${esc(e.message)}</p>`;
+});
+loadCatalog().catch(e => log(e.message));
+</script>
+</body>
+</html>

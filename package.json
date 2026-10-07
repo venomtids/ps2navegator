@@ -1,0 +1,24 @@
+{
+  "name": "sector-ps2-launcher",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Launcher PS2 com Play! WASM integrado, ISO local, HTTP Range e teclado",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "catalog:build": "node scripts/build-catalog.mjs",
+    "test:catalog": "node tests/catalog.cjs",
+    "test:smoke": "node tests/smoke.cjs",
+    "test:installer": "node tests/installer.cjs",
+    "test:installer-ui": "node tests/installer-ui.cjs"
+  },
+  "dependencies": {
+    "7zip-bin": "^5.2.0",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
