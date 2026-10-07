@@ -1,0 +1,59 @@
+{
+  "result": "PASS",
+  "checks": [
+    "isolation",
+    "local sector read",
+    "real WASM load",
+    "invalid disc fails safely",
+    "eject"
+  ],
+  "events": "Registered function '_LWR_Proxy(iiii)' = > id = 10.\nRegistered function '_LDL_Proxy(jiji)' = > id = 11.\nRegistered function '_LDR_Proxy(jiji)' = > id = 12.\nRegistered function '_SWL_Proxy(viii)' = > id = 13.\nRegistered function '_SWR_Proxy(viii)' = > id = 14.\nRegistered function '_SDL_Proxy(viji)' = > id = 15.\nRegistered function '_SDR_Proxy(viji)' = > id = 16.\nLoading 'disc.iso'...\r\nPS2VM: Error mounting cdrom0 device: Invalid ISO9660 Volume Descriptor.\r\nFailed to start: No 'SYSTEM.CNF' file found on the cdrom0 device..\r\nFalha: Failed to start: No 'SYSTEM.CNF' file found on the cdrom0 device..\r\nDisco ejetado; cache descartado.",
+  "errors": [],
+  "responses": [
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/adapter.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/host.html"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/host.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.wasm"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.js"
+    ],
+    [
+      200,
+      "http://127.0.0.1:3002/emulator/play/Play.js"
+    ]
+  ]
+}
+PASS: WASD and action-key translation.

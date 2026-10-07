@@ -1,0 +1,12 @@
+{
+  "project": "Play!",
+  "repository": "https://github.com/jpd002/Play-",
+  "binary_source": "https://playjs.purei.org/",
+  "retrieved": "2026-10-07",
+  "inspected_source_commit": "83700b2c31e593bc94e845b4b31b797be84dda59",
+  "note": "Official prebuilt binaries; inspected commit documents bridge API, not a verified binary build commit.",
+  "sha256": {
+    "Play.js": "5599ff16ae5e3534f9b779736aedfa20661821d57be7f03e587e31ef8d090317",
+    "Play.wasm": "5c6ace637a23f3416a8105d1a07786631994e8dfe34d603a9f62c3b47c47f1a2"
+  }
+}

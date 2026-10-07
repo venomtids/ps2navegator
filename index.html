@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SECTOR / PS2 Launcher</title>
+<!-- Tailwind é complementar. O CSS local mantém o painel utilizável sem CDN. -->
+<script src="https://cdn.tailwindcss.com" crossorigin="anonymous"></script>
+<style>
+:root{color-scheme:dark;--bg:#080c14;--panel:#101724;--line:#263246;--muted:#8fa2bd;--cyan:#4cf0d0}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top right,#12302f55,transparent 55%),var(--bg);color:#edf4ff;font:14px system-ui,sans-serif}main{max-width:1450px;margin:auto;padding:32px}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:30px}h1{font-size:28px;letter-spacing:5px;margin:0}h2{font-size:16px;margin:0 0 20px}p{line-height:1.6}small,.muted{color:var(--muted)}.tag{display:inline-block;border:1px solid #34554f;border-radius:30px;padding:6px 12px;font-size:11px;color:var(--cyan)}.layout{display:grid;grid-template-columns:300px 1fr;gap:22px}.stack{display:grid;gap:20px;align-content:start}.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px}.row{display:flex;justify-content:space-between;align-items:center;gap:12px}.value{font-size:30px;font-weight:700;margin:14px 0}.accent{color:var(--cyan)}button,input,select{font:inherit;border-radius:9px;border:1px solid var(--line);padding:12px;background:#0a101c;color:inherit}input,select{width:100%;margin:6px 0 14px}button{cursor:pointer;transition:.2s}button:hover:not(:disabled){border-color:var(--cyan);transform:translateY(-1px)}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:var(--cyan);color:#08221b;border-color:var(--cyan);font-weight:700}.wide{width:100%}.screen{position:relative;background:#04070d;border:1px solid var(--line);border-radius:12px;overflow:hidden;aspect-ratio:16/9;margin:18px 0}canvas{width:100%;height:100%;display:block}.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px;pointer-events:none}.overlay.hidden{display:none}.glyph{font-size:62px;color:var(--cyan);text-shadow:0 0 40px #4cf0d060}.actions{display:flex;flex-wrap:wrap;gap:10px}.disc{width:86px;height:86px;margin:8px auto 22px;border-radius:50%;background:conic-gradient(#182b3b,#6ed3be,#1e3348,#8c9cca,#182b3b);border:1px solid #94ffdc55;position:relative}.disc:after{content:'';position:absolute;inset:32px;border:5px solid #283447;border-radius:50%;background:var(--panel)}.spinning{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}progress{width:100%;height:8px;accent-color:var(--cyan);margin:14px 0}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px}.stats>div{background:#0b111d;padding:14px;border-radius:10px}.stats strong{display:block;margin-top:8px;font-size:18px}.notice{font-size:12px;color:var(--muted);margin-bottom:0}#log{min-height:42px;overflow-wrap:anywhere;color:#abc0da}.pulse{animation:pulse .65s infinite alternate}@keyframes pulse{to{opacity:.45}}label{font-size:12px;color:#b8c9de}footer{padding-top:24px;color:var(--muted);font-size:12px}@media(max-width:900px){main{padding:18px}.layout{grid-template-columns:1fr}.sidebar{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}header{gap:12px}.stats{grid-template-columns:1fr}h1{font-size:22px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>SECTOR<span class="accent"> /</span></h1><p class="muted">PS2 LAB · REMOTE DISC SYSTEM</p></div><span class="tag">HTTP RANGE / ONLINE</span></header>
+<div class="layout">
+<aside class="stack sidebar">
+<section class="card"><div class="row"><h2>Memória do leitor</h2><span class="tag">RAM</span></div><div class="value" id="ramValue">8 MiB</div><p class="muted">Limite real do cache de setores. Não representa a RAM disponível ao emulador.</p><button id="ram" class="wide">Maximizar Memória RAM</button><p class="notice">Animação simulada; limpa somente este cache. Não libera RAM do sistema.</p></section>
+<section class="card"><h2>Perfil gráfico virtual</h2><select id="gpu"><option>RTX 4070</option><option>RX 7800 XT</option></select><div class="value accent" id="clock">— MHz</div><button id="tune" class="wide">Simular alta performance</button><p class="notice">Clock e GPU são apenas visuais. Nenhum hardware é criado ou acelerado.</p></section>
+<section class="card"><h2>Leitor de CD / DVD</h2><div class="disc" id="disc"></div><div class="row"><span id="discStatus" role="status">Sem disco</span><span class="accent" id="speed">0×</span></div><progress id="buffer" max="100" value="0"></progress><div class="row muted"><small>Cache LRU do leitor</small><small id="bufferText">0 / 8 MiB</small></div><p class="notice">Rotação 4× simulada durante leituras. Taxa de rede medida no painel.</p></section>
+</aside>
+<div class="stack">
+<section class="card"><div class="row"><h2>Console virtual</h2><span class="tag" id="engine">PLAY! · PRONTO PARA INICIAR</span></div>
+<div class="screen"><canvas id="canvas" width="1280" height="720" aria-label="Tela do emulador"></canvas><div id="overlay" class="overlay"><div class="glyph">◎</div><h2>Seu disco. Setor por setor.</h2><p class="muted">Play! WASM integrado · PS2 experimental<br>Selecione uma ISO local ou monte uma ISO remota.</p></div></div>
+<div class="actions"><button id="play" class="primary" disabled>Iniciar Play!</button><button id="test" disabled>Testar leitura de setor</button><button id="stop" disabled>Parar</button><button id="fullscreen">Tela cheia</button></div>
+<div class="stats"><div><small>RECEBIDOS NESTA MONTAGEM</small><strong id="received">0 MiB</strong></div><div><small>ÚLTIMA LEITURA DE DADOS</small><strong id="rate">0 MiB/s</strong></div><div><small>ISOLAMENTO WASM</small><strong id="isolation">Verificando</strong></div></div>
+</section>
+<section class="card"><div class="row"><h2>GTA San Andreas · PS2 USA v3.00</h2><span class="tag">INSTALAÇÃO SOB DEMANDA</span></div>
+<p class="muted">ISO de PS2 confirmada: SLUS_209.46 · NTSC · 4,52 GB. O jogo não vem no projeto. Escolha leitura por setores ou download completo sob demanda.</p>
+<div class="actions"><button id="streamGta" class="primary">Jogar por setores</button><button id="install">Baixar e iniciar GTA</button><button id="installCancel" disabled>Cancelar instalação</button><a class="tag" href="https://archive.org/details/grand-theft-auto-san-andreas-usa-v-3.00_202401" target="_blank" rel="noopener noreferrer">Abrir origem ↗</a></div>
+<p id="installStatus" role="status">Consultando instalação local…</p><progress id="installProgress" max="100" value="0"></progress><small id="installBytes">Nenhum download iniciado.</small>
+<details style="margin-top:18px"><summary>Origem bloqueada? Informar link direto autorizado</summary><p class="notice">O endereço do Archive já está configurado. Deixe o campo vazio para usá-lo. Outros links exigem acesso público e formato compatível; não contornamos login ou bloqueios.</p><label for="downloadUrl">Link HTTPS do arquivo .zip, .7z ou .iso</label><input id="downloadUrl" type="url" placeholder="https://…/Jogo.zip (opcional)"><label for="archivePassword">Senha do pacote (se exigida)</label><input id="archivePassword" type="password" value="" autocomplete="off"><small>Hosts permitidos: romsfun.com, romsfast.com e archive.org.</small></details>
+<p class="notice">Use conteúdo autorizado. “Jogar por setores” usa HTTP Range sem baixar tudo primeiro. “Baixar e iniciar” grava 4,52 GB no servidor e valida o SHA-1 antes de iniciar. Não exige extração para esta ISO. Compatibilidade e desempenho no Play! ainda não foram confirmados para este jogo. <a href="https://github.com/jpd002/Play-" target="_blank" rel="noopener noreferrer">Núcleo Play!</a></p></section>
+<section class="card"><h2>Selecionar ISO do computador</h2><label for="localIso">ISO de PS2 não compactada — leitura local por setores, sem upload</label><input id="localIso" type="file" accept=".iso"><button id="mountLocal" class="primary">Montar ISO local</button><p class="notice">Play! usa BIOS emulada internamente; não precisa de arquivo de BIOS. O leitor mantém cache de até 8 MiB, separado da memória usada pelo núcleo.</p></section>
+<section class="card"><h2>Teclado / controles</h2><p class="muted"><b>W A S D</b> · analógico esquerdo &nbsp; <b>Setas</b> · direcional<br><b>J / K / U / I</b> · ✕ / ○ / □ / △ &nbsp; <b>Enter</b> · Start &nbsp; <b>Backspace</b> · Select<br><b>Q / E</b> · L1 / R1 &nbsp; <b>1 / 3</b> · L2 / R2</p><p class="notice">Clique na tela do jogo para ativar teclado e áudio. Mapeamento de controle PS2, não controles nativos de PC. Mouse não controla a câmera. Saves não persistem nesta integração: parar encerra a VM.</p><span class="tag" id="fps">0 FPS · aguardando núcleo</span></section>
+<section class="card"><h2>Montar disco remoto</h2><label for="item">Identificador do item no Internet Archive</label><input id="item" placeholder="identificador-do-seu-homebrew" autocomplete="off"><label for="file">Caminho exato da ISO dentro do item</label><input id="file" placeholder="pasta/Jogo.iso" autocomplete="off"><div class="actions"><button id="mount" class="primary">Montar ISO</button><button id="eject" disabled>Ejetar</button></div><p class="notice">Somente ISOs públicas não compactadas, homebrew ou conteúdo autorizado. ZIP/CHD e arquivos restritos não são aceitos. O tamanho é consultado lendo apenas o byte zero.</p></section>
+<section class="card"><h2>Eventos do sistema</h2><div id="log" role="status" aria-live="polite">Pronto. Nenhum jogo ou BIOS incluído.</div></section>
+</div></div><footer>SECTOR LAB / Cache limitado · Fila assíncrona · Backpressure · Sem banco de dados</footer>
+</main>
+<script type="module">
+const $ = id => document.getElementById(id);
+const MiB = 1024 * 1024;
+const events = [];
+const log = text => {
+  events.push(String(text));
+  if (events.length > 12) events.shift();
+  $('log').textContent = events.join('\n');
+  $('log').style.whiteSpace = 'pre-wrap';
+};
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const abortError = () => new DOMException('Leitor encerrado.', 'AbortError');
+
+class RemoteDisc {
+  constructor(query, size, update) {
+    this.url = '/api/stream-iso?' + query;
+    this.size = size;
+    this.sectorSize = 2048;
+    this.block = 256 * 1024;
+    this.limit = 8 * MiB;
+    this.used = 0;
+    this.received = 0;
+    this.rate = 0;
+    this.cache = new Map();
+    this.pending = 0;
+    this.tail = Promise.resolve();
+    this.controller = new AbortController();
+    this.update = update;
+  }
+  clear() { this.cache.clear(); this.used = 0; this.emit(); }
+  dispose() { this.controller.abort(); this.clear(); }
+  check() { if (this.controller.signal.aborted) throw abortError(); }
+  emit(extra = {}) { this.update({ used: this.used, limit: this.limit, received: this.received, rate: this.rate, ...extra }); }
+  // O contrato assíncrono evita Promise.all ilimitado e permite Asyncify/JSPI ou worker bridge.
+  read(offset, length) {
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 1 ||
+        length > 2 * MiB || offset + length > this.size)
+      return Promise.reject(new Error('Leitura deve estar no disco e ter entre 1 byte e 2 MiB.'));
+    if (this.pending >= 32) return Promise.reject(new Error('Fila cheia: aguarde as leituras anteriores.'));
+    this.pending++;
+    const job = this.tail.then(() => this.perform(offset, length));
+    this.tail = job.catch(() => {});
+    return job.finally(() => { this.pending--; });
+  }
+  async perform(offset, length) {
+    this.check();
+    this.emit({ busy: true, sector: Math.floor(offset / this.sectorSize) });
+    try {
+      const output = new Uint8Array(length);
+      let written = 0;
+      while (written < length) {
+        this.check();
+        const pos = offset + written;
+        const base = Math.floor(pos / this.block) * this.block;
+        let data = this.cache.get(base);
+        if (data) { this.cache.delete(base); this.cache.set(base, data); }
+        else {
+          data = await this.load(base, Math.min(this.block, this.size - base));
+          while (this.used + data.length > this.limit && this.cache.size) {
+            const key = this.cache.keys().next().value;
+            this.used -= this.cache.get(key).length;
+            this.cache.delete(key);
+          }
+          this.cache.set(base, data); this.used += data.length;
+        }
+        const from = pos - base, count = Math.min(length - written, data.length - from);
+        output.set(data.subarray(from, from + count), written);
+        written += count;
+        this.emit();
+      }
+      return output;
+    } finally { this.emit({ busy: false }); }
+  }
+  async fetchPart(start, length) {
+    this.check();
+    const local = new AbortController();
+    const abort = () => local.abort();
+    this.controller.signal.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, 25000);
+    const began = performance.now();
+    try {
+      const end = start + length - 1;
+      const r = await fetch(this.url, { headers: { Range: `bytes=${start}-${end}` }, signal: local.signal });
+      if (!r.ok) {
+        const message = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
+        throw Object.assign(new Error(message), { fatal: [400, 401, 403, 404, 416].includes(r.status) });
+      }
+      if (r.status !== 206 || r.headers.get('content-range') !== `bytes ${start}-${end}/${this.size}` ||
+          Number(r.headers.get('content-length')) !== length) {
+        await r.body?.cancel();
+        throw new Error('Range recebido não corresponde ao solicitado.');
+      }
+      // Leitura incremental limitada; não usa arrayBuffer() sobre resposta sem limite.
+      const output = new Uint8Array(length), reader = r.body.getReader();
+      let n = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (n + value.byteLength > length) throw new Error('Resposta excedeu o limite.');
+          output.set(value, n); n += value.byteLength;
+          this.received += value.byteLength;
+        }
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      if (n !== length) throw new Error('Leitura incompleta.');
+      this.rate = length / MiB / Math.max((performance.now() - began) / 1000, .001);
+      return output;
+    } finally {
+      clearTimeout(timer);
+      this.controller.signal.removeEventListener('abort', abort);
+      local.abort();
+    }
+  }
+  async load(start, length) {
+    // Fallback real: subdivisão iterativa, tentativas limitadas e backoff, sem recursão.
+    const output = new Uint8Array(length);
+    let pos = 0, step = this.block, failures = 0;
+    while (pos < length) {
+      this.check();
+      const count = Math.min(step, length - pos);
+      try {
+        output.set(await this.fetchPart(start + pos, count), pos);
+        pos += count; failures = 0;
+      } catch (e) {
+        this.check();
+        if (e.fatal || ++failures > 3) throw e;
+        step = Math.max(16 * 1024, Math.floor(step / 2));
+        await sleep(500 * 2 ** (failures - 1) + Math.random() * 200);
+      }
+    }
+    return output;
+  }
+}
+// Reuses bounded queue/cache but reads only Blob slices. No upload, no full ISO buffer.
+class LocalDisc extends RemoteDisc {
+  constructor(file, update) { super('', file.size, update); this.file = file; }
+  async fetchPart(start, length) {
+    this.check();
+    const began = performance.now();
+    const bytes = new Uint8Array(await this.file.slice(start, start + length).arrayBuffer());
+    this.check();
+    if (bytes.byteLength !== length) throw new Error('Arquivo local incompleto ou inacessível.');
+    this.received += bytes.length;
+    this.rate = length / MiB / Math.max((performance.now() - began) / 1000, .001);
+    return bytes;
+  }
+}
+let disc = null, emulator = null, testOffset = 0;
+function telemetry(s) {
+  $('buffer').value = s.used / s.limit * 100;
+  $('bufferText').textContent = `${(s.used / MiB).toFixed(2)} / ${s.limit / MiB} MiB`;
+  $('received').textContent = `${(s.received / MiB).toFixed(2)} MiB`;
+  $('rate').textContent = `${s.rate.toFixed(2)} MiB/s`;
+  if (s.busy !== undefined) {
+    $('disc').classList.toggle('spinning', s.busy);
+    $('speed').textContent = s.busy ? '4×' : '0×';
+    $('discStatus').textContent = s.busy ? `Lendo setor ${s.sector}…` : 'Disco pronto';
+  }
+}
+function controls() {
+  $('install').disabled = !!emulator;
+  $('streamGta').disabled = !!emulator;
+  $('play').disabled = !disc || !!emulator;
+  $('test').disabled = !disc || !!emulator;
+  $('stop').disabled = !emulator;
+  $('eject').disabled = !disc;
+}
+// Serializa ações de UI; não mistura troca de disco com inicialização do núcleo.
+let locked = false;
+function action(id, fn) {
+  $(id).onclick = async () => {
+    if (locked) return;
+    locked = true;
+    const ids = ['streamGta', 'install', 'mount', 'mountLocal', 'eject', 'play', 'test', 'stop'];
+    ids.forEach(i => $(i).disabled = true);
+    try { await fn(); } catch (e) { log(e.message); }
+    finally { locked = false; $('mount').disabled = false; $('mountLocal').disabled = false; controls(); }
+  };
+}
+async function stopCore() {
+  const running = emulator; emulator = null;
+  if (running) await running.stop();
+  $('overlay').classList.remove('hidden');
+  $('engine').textContent = 'PLAY! · PARADO';
+  $('fps').textContent = '0 FPS · núcleo parado';
+}
+action('mountLocal', async () => {
+  const file = $('localIso').files[0];
+  if (!file || !/\.iso$/i.test(file.name)) throw new Error('Selecione uma ISO de PS2 extraída, não ZIP/7z/RAR ou instalador de Windows.');
+  if (file.size < 34816) throw new Error('Arquivo pequeno demais para uma imagem ISO de PS2.');
+  const signature = new TextDecoder().decode(await file.slice(32769, 32774).arrayBuffer());
+  if (signature !== 'CD001') throw new Error('Cabeçalho ISO9660 não encontrado. Confirme o formato do disco.');
+  await stopCore();
+  disc?.dispose();
+  disc = new LocalDisc(file, telemetry);
+  disc.emit({ busy: false }); testOffset = 0;
+  log(`ISO local: ${file.name} · ${(file.size / MiB).toFixed(2)} MiB. Clique em Iniciar Play!.`);
+});
+async function mountRemote() {
+  await stopCore();
+  disc?.dispose(); disc = null;
+  $('discStatus').textContent = 'Consultando disco…';
+  const query = new URLSearchParams({ item: $('item').value.trim(), file: $('file').value.trim() });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 50000);
+  try {
+    const r = await fetch('/api/disc?' + query, { signal: controller.signal });
+    const info = await r.json();
+    if (!r.ok) throw new Error(info.error || 'Não foi possível montar o disco.');
+    disc = new RemoteDisc(query.toString(), info.size, telemetry);
+    disc.emit({ busy: false }); testOffset = 0;
+    log(`Disco montado: ${(info.size / MiB).toFixed(2)} MiB. Nenhuma ISO integral foi baixada.`);
+  } catch (e) { $('discStatus').textContent = 'Sem disco'; throw e; }
+  finally { clearTimeout(timer); }
+}
+action('mount', mountRemote);
+action('streamGta', async () => {
+  const config = await gameAPI('config');
+  $('item').value = config.item; $('file').value = config.file;
+  await mountRemote();
+  await launchCore();
+});
+action('test', async () => {
+  const length = Math.min(2048, disc.size - testOffset);
+  const bytes = await disc.read(testOffset, length);
+  const hex = Array.from(bytes.subarray(0, 16), b => b.toString(16).padStart(2, '0')).join(' ');
+  log(`Setor ${Math.floor(testOffset / 2048)} · ${bytes.length} bytes · ${hex} · teste de transporte, não emulação.`);
+  testOffset = (testOffset + length) % disc.size;
+});
+action('eject', async () => {
+  await stopCore(); disc?.dispose(); disc = null;
+  $('discStatus').textContent = 'Sem disco'; log('Disco ejetado; cache descartado.');
+});
+action('stop', async () => { await stopCore(); log('Núcleo parado.'); });
+async function launchCore() {
+  const { createPS2 } = await import('/emulator/adapter.js');
+  const mounted = disc;
+  let failed = false;
+  const instance = await createPS2({
+    canvas: $('canvas'),
+    disc: { size: mounted.size, sectorSize: 2048, read: (offset, length) => mounted.read(offset, length) },
+    onStatus: log,
+    onFPS: fps => { $('fps').textContent = `${fps} FPS · medido pelo núcleo`; },
+    onError: error => {
+      failed = true;
+      log(`Falha: ${error.message}`);
+      if (emulator === instance) void stopCore().finally(() => { if (!locked) controls(); });
+    }
+  });
+  $('engine').textContent = 'PLAY! · INICIALIZANDO';
+  try {
+    await instance.start();
+    if (failed) throw new Error('O núcleo interrompeu o boot. Confira os eventos.');
+  } catch (error) {
+    await instance.stop(); $('engine').textContent = 'PLAY! · FALHA'; throw error;
+  }
+  emulator = instance;
+  $('overlay').classList.add('hidden'); $('engine').textContent = 'PLAY! · VM INICIADA';
+  log('Boot solicitado. Clique na tela para teclado e áudio. FPS/compatibilidade dependem do jogo e do dispositivo.');
+}
+action('play', launchCore);
+function showInstall(state) {
+  $('installStatus').textContent = state.message;
+  $('installCancel').disabled = !state.busy || state.phase === 'cancelling';
+  const extracting = state.phase === 'extracting';
+  const current = extracting ? state.extracted : state.downloaded;
+  const total = extracting ? state.isoSize : state.total;
+  $('installProgress').value = state.phase === 'ready' ? 100 : (total ? current / total * 100 : 0);
+  if (state.busy && !total) $('installProgress').removeAttribute('value');
+  $('installBytes').textContent = state.phase === 'ready'
+    ? `ISO instalada: ${(state.isoSize / MiB).toFixed(0)} MiB · reutilizada no próximo início.`
+    : `${extracting ? 'Extraído' : 'Baixado'}: ${(current / MiB).toFixed(1)} MiB${total ? ' / ' + (total / MiB).toFixed(1) + ' MiB' : ''}`;
+  $('install').textContent = state.phase === 'ready' ? 'Iniciar GTA instalado' : state.busy ? 'Acompanhar e iniciar' : 'Baixar e iniciar GTA';
+}
+async function gameAPI(route, body) {
+  const response = await fetch('/api/game/' + route, {
+    ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(15000)
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Falha ao comunicar com instalador.');
+  return result;
+}
+action('install', async () => {
+  let state = await gameAPI('status');
+  if (!state.busy && state.phase !== 'ready') {
+    state = await gameAPI('install', { url: $('downloadUrl').value.trim(), password: $('archivePassword').value });
+  }
+  while (true) {
+    showInstall(state);
+    if (state.phase === 'ready') break;
+    if (!state.busy) throw new Error(state.message);
+    await sleep(1000);
+    state = await gameAPI('status');
+  }
+  const info = await gameAPI('disc');
+  await stopCore(); disc?.dispose();
+  disc = new RemoteDisc('', info.size, telemetry);
+  disc.url = '/api/game/stream';
+  disc.emit({ busy: false }); testOffset = 0;
+  log('ISO instalada montada. Iniciando Play! com leitura por setores…');
+  await launchCore();
+});
+$('installCancel').onclick = async () => {
+  $('installCancel').disabled = true;
+  try { showInstall(await gameAPI('cancel', {})); }
+  catch (error) { log(error.message); }
+};
+// Config/status only: opening/reloading never downloads ISO bytes.
+gameAPI('config').then(config => {
+  if (!$('item').value) $('item').value = config.item;
+  if (!$('file').value) $('file').value = config.file;
+}).catch(error => log(error.message));
+gameAPI('status').then(showInstall).catch(error => { $('installStatus').textContent = error.message; });
+$('ram').onclick = async () => {
+  $('ram').disabled = true; $('ram').classList.add('pulse'); $('ram').textContent = 'Limpando cache do leitor…';
+  try {
+    await sleep(900); disc?.clear();
+    $('ramValue').textContent = '8 MiB';
+    log('Cache do leitor limpo. RAM do navegador e do sistema não foi ampliada.');
+  } finally { $('ram').disabled = false; $('ram').classList.remove('pulse'); $('ram').textContent = 'Maximizar Memória RAM'; }
+};
+$('tune').onclick = async () => {
+  $('tune').disabled = true; $('clock').classList.add('pulse');
+  await sleep(900);
+  $('clock').textContent = ($('gpu').selectedIndex ? '2430' : '2475') + ' MHz';
+  $('clock').classList.remove('pulse'); $('tune').disabled = false;
+  log(`Perfil ${$('gpu').value}: clock simulado, sem efeito sobre o hardware.`);
+};
+$('fullscreen').onclick = () => document.querySelector('.screen').requestFullscreen?.().catch(e => log(e.message));
+$('isolation').textContent = crossOriginIsolated ? 'SAB disponível' : 'Sem SharedArrayBuffer';
+window.addEventListener('pagehide', () => disc?.dispose());
+</script>
+</body>
+</html>
