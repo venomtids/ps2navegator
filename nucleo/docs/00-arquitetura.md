@@ -360,6 +360,62 @@ cada salto de redirecionamento revalidado (seguir `Location` automaticamente é 
 de ser seguro). Resíduos declarados: DNS rebinding e NAT64 `64:ff9b::/96`; mitigação: servidor de
 uso local.
 
+### 6.2.3 Jogos: discos de PS2 dentro do PC virtual (núcleo Play! herdado)
+
+A janela "Jogos" roda discos de PS2 no PC virtual. O emulador **não** é
+reimplementado nem duplicado: é o núcleo **Play!** já versionado na raiz deste
+repositório (`emulator/play/Play.js` + `Play.wasm`, com `LICENSE.txt` e
+`provenance.json`), servido por `/emulator/*` a partir do `server.js` do NÚCLEO e
+consumido pelo **mesmo adaptador** que a página do launcher usa
+(`emulator/adapter.js`). Uma fonte de verdade para um binário de 2,4 MB.
+
+```text
+usuário escolhe o disco
+   ├── computador   → File.slice(offset,len)            (zero cópia, sem instalar nada)
+   └── PC virtual   → vfs.readRange(path,offset,len)    (setores do OPFS, 32 KiB/bloco)
+        │
+        ├── verificação ISO9660: descritor primário no setor 16 (assinatura CD001)
+        │     recusa ANTES de criar qualquer thread, com motivo escrito
+        │
+        └── createPS2({ disc, canvas })   ← adaptador do launcher, sem cópia divergente
+                 │  iframe /emulator/host.html
+                 │  ponte de setores: { read } → DiscDevice → HEAPU8 do Wasm
+                 └── Play! (pthreads) → WebGL2 → tela do console
+```
+
+**Contrato do disco.** O adaptador exige apenas `{ size, read(offset, length) }`.
+O módulo `js/core/disc.js` produz essa interface a partir de um `File` do
+computador do usuário ou de um arquivo do VMFS — este último via
+`vfs.readRange`, que abre e fecha a sessão a cada faixa de propósito: o worker
+`w-io` atende **uma sessão por vez**, e retê-la durante o jogo travaria terminal,
+arquivos e instalador.
+
+**O portão de honestidade (e o limite real).** Play! compila com pthreads e
+portanto exige `SharedArrayBuffer`, que só existe em página `crossOriginIsolated`
+(COOP+COEP). Em iframe de terceiro — o caso do preview embutido — não há
+isolamento, e **emulador de PS2 não roda**. A janela não tenta: mostra o motivo
+exato, diz como resolver (abrir em aba própria) e desabilita os controles que não
+podem funcionar. Um botão "Iniciar" que sempre falha seria mentira de interface.
+
+| Situação | O que a janela faz | Por quê |
+|---|---|---|
+| sem `SharedArrayBuffer` | cartão explica threads Wasm + COOP/COEP | pthreads não existem sem SAB |
+| com SAB, sem isolamento (iframe) | cartão aponta o iframe e ensina a abrir em aba própria | o navegador recusa SAB em origem opaca |
+| sem WebGL2 | cartão pede aceleração de hardware | o núcleo desenha em WebGL2 |
+| disco não é ISO9660 | recusa com o tipo e a assinatura encontrados | erro obscuro minutos depois é pior |
+| falha do núcleo | cartão com a mensagem + toast; nada de tela preta | o adaptador encerra VM, pthreads e áudio ao parar |
+| janela fechada | `onClose` para o emulador antes de sair | fechar não pode deixar thread viva |
+
+**Cadeia de suprimentos.** O `server.js` verifica **SHA256** de `Play.js` e
+`Play.wasm` contra `provenance.json` a cada boot: divergência não é servida
+("emulador é código executável; quase igual não basta"), ausência da pasta vira
+503 com instrução, e a rota tem a mesma guarda de travessia de caminho do resto
+do servidor (testado com `..`, `%2e%2e` e `%2f`).
+
+**O que o NÚCLEO não faz (ainda):** não baixa jogos, não distribui ISO, não roda
+o catálogo do launcher dentro do PC virtual e não guarda save state — nada disso
+é oferecido hoje, então nada disso é mostrado.
+
 ### 6.3 Critérios de aceite do subsistema
 
 - `uname -a` e `cat /etc/debian_version` respondem **do guest**, não da UI. **[R]**
@@ -568,11 +624,11 @@ estados extras usados em produção: `STALL` (métrica congelada > 1 s) e `N/D`.
 
 ## 12. Segurança e cadeia de suprimentos
 
-- **Isolamento**: `COOP/COEP/CORP` no `server.js` **[P]**; o OS só aceita rodar isolado e diz isso ao usuário quando não está.
+- **Isolamento**: `COOP/COEP/CORP` no `server.js` **[P]**, inclusive na rota herdada `/emulator/*` (sem isso o núcleo Play! não teria SAB no iframe); o OS só aceita rodar isolado e diz isso ao usuário quando não está.
 - **Sem `eval`/`innerHTML` com dados de usuário**: terminal escreve por `textContent`; nomes de arquivo são validados por `core/util.js` (sem `..`, sem NUL).
 - **Origem remota**: o backend só aceita `https://archive.org` (e subdomínios) com validação de `Content-Range` **[P]** — não é proxy de URL arbitrária.
 - **Sem credenciais**: nada é pedido ou armazenado; o OS não guarda token de ninguém.
-- **Integridade**: binários WASM de terceiros (Play!) com licença e `provenance.json` **[P]**; todo asset novo deve entrar com hash e licença no mesmo padrão.
+- **Integridade**: binários WASM de terceiros (Play!) com licença e `provenance.json` **[P]**, verificado de fato a cada boot do `server.js` — SHA256 divergente **não é servido** (emulador é código executável) e ausência da pasta vira 503 explicado; todo asset novo deve entrar com hash e licença no mesmo padrão.
 - **CSP**: `default-src 'self'`; fontes locais; nenhum script de CDN no runtime do OS.
 
 ---
@@ -604,7 +660,7 @@ e aí o hash de conteúdo governa o cache). Sem CDN, sem etapa obrigatória de b
 |---|---|---|---|
 | **F0** | Shell: boot, WM, dock, HUD, settings, terminal VMFS | `/os` carrega isolado; abrir/fechar/maximizar 4 janelas sem queda de frame > 2×; `test:os-core` verde | **[B]** feito |
 | **F1** | Barramento real + 3 workers instrumentados | ring SAB com 0 *drops* a 2 000 msg/s; P95 do main < 2 ms com 3 workers ativos | **[B]** feito |
-| **F2** | Integração do launcher PS2 como janela do OS | GTA:SA boota dentro de uma janela; fechar a janela encerra VM/pthreads/áudio sem vazar **[P]** | **[B]** feito (ponte reusada) |
+| **F2** | Integração do launcher PS2 como janela do OS | GTA:SA boota dentro de uma janela; fechar a janela encerra VM/pthreads/áudio sem vazar **[P]** | **[B]** janela Jogos no OS, disco do computador e do VMFS, verificação ISO9660, portão de isolamento e ponte reusada; o **boot do jogo** segue **[P]** — exige aba isolada com GPU e não foi verificado no ambiente de construção |
 | **F3** | Motor de jogo: ECS + mundo em células + streaming OPFS | 1 km² de mundo, 60 FPS no perfil `baseline`, 30 fps com 2 000 entidades | **[R]** |
 | **F4** | Runtime Linux real em `w-kernel` | boot de Debian com TTY interativo; P95 de teclado ≤ 40 ms; `apt` offline | **[R]** |
 | **F5** | Compute pesado na GPU + DRS | partículas de 500 k pontos a 2,0 ms; DRS estabilizado sem oscilar > 1 passo | **[R]** |

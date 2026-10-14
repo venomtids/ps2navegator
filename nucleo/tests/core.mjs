@@ -789,6 +789,56 @@ await test('o worker de I/O de produção atende o VFS por MessagePort', async (
     assert.equal(back.length, big.length);
     assert.deepEqual([...back.slice(-16)], [...big.slice(-16)]);
 
+    // Leitura POR FAIXA — o caminho que o leitor de setores do emulador de PS2
+    // usa para montar uma ISO de vários GB sem carregá-la na memória.
+    const padrao = new Uint8Array(70 * 1024);
+    for (let i = 0; i < padrao.length; i++) padrao[i] = (i * 31 + 7) & 0xff;
+    await race(vfs.write('/home/nucleo/iso.bin', padrao), 'write-iso');
+    const f1 = await race(vfs.readRange('/home/nucleo/iso.bin', 0, 2048), 'faixa-0');
+    assert.equal(f1.length, 2048);
+    assert.deepEqual([...f1.slice(0, 8)], [...padrao.slice(0, 8)]);
+    const deslocado = 33 * 1024 + 17;
+    const f2 = await race(vfs.readRange('/home/nucleo/iso.bin', deslocado, 5000), 'faixa-meio');
+    assert.deepEqual([...f2.slice(0, 8)], [...padrao.slice(deslocado, deslocado + 8)],
+      'a faixa lida é a do offset pedido, não do começo do arquivo');
+    // Além do fim: trunca, sem inventar bytes.
+    const f3 = await race(vfs.readRange('/home/nucleo/iso.bin', padrao.length - 100, 4096), 'faixa-fim');
+    assert.equal(f3.length, 100, 'faixa além do fim devolve só o que existe');
+    // Acima do teto: recusa com motivo.
+    await assert.rejects(() => vfs.readRange('/home/nucleo/iso.bin', 0, (1 << 20) + 1), /acima do teto/);
+
+    // A PROVA do leitor de setores: uma "ISO" de 4 MiB inteira passa pelo
+    // js/core/disc.js (a interface que o emulador de PS2 consome) sobre o worker
+    // de produção, em faixas de 1 MiB, e sai com hash idêntico. É este caminho que
+    // monta um disco de vários GB sem carregá-lo na memória.
+    const { criarDiscoDeVfs, lerFaixa, SETOR, OFFSET_PVD } = await import('../js/core/disc.js');
+    const MiB = 1 << 20;
+    const imagem = new Uint8Array(4 * MiB);
+    for (let i = 0; i < imagem.length; i++) imagem[i] = (i * 2654435761) & 0xff;
+    // descritor primário válido dentro da imagem, para o teste ser uma ISO de verdade
+    const pvd = new DataView(imagem.buffer, OFFSET_PVD, SETOR);
+    pvd.setUint8(0, 1);
+    for (let i = 0; i < 5; i++) pvd.setUint8(1 + i, 'CD001'.charCodeAt(i));
+    await race(vfs.write('/home/nucleo/imagem.iso', imagem), 'write-imagem', 20000);
+
+    const { createHash } = await import('node:crypto');
+    const esperado = createHash('sha256').update(imagem).digest('hex');
+    const disco = criarDiscoDeVfs({ vfs, caminho: '/home/nucleo/imagem.iso', tamanho: imagem.length });
+    assert.equal(disco.size, imagem.length);
+    const lido = new Uint8Array(disco.size);
+    for (let off = 0; off < disco.size; off += MiB) {
+      const n = Math.min(MiB, disco.size - off);
+      lido.set(await race(disco.read(off, n), `faixa-${off}`, 20000), off);
+    }
+    const obtido = createHash('sha256').update(lido).digest('hex');
+    assert.equal(obtido, esperado, 'a imagem lida por faixas precisa ser byte a byte a que foi gravada');
+    assert.equal(disco.stats.leituras, 4);
+    assert.equal(disco.stats.bytes, 4 * MiB);
+
+    const { identificarDisco } = await import('../js/core/disc.js');
+    assert.equal((await identificarDisco(disco)).tipo, 'ISO9660', 'a imagem sintética precisa passar como ISO9660');
+    assert.equal((await lerFaixa(disco, OFFSET_PVD, 7)).length, 7);
+
     // Instalação de verdade pelo mesmo caminho: bytes do "computador real" para
     // o disco virtual, passando pelo worker de produção.
     const fake = (name, size) => ({ name, arrayBuffer: async () => new Uint8Array(size).fill(9).buffer });
@@ -901,6 +951,75 @@ await test('progresso reporta bytes reais, acumulados', async () => {
 });
 
 // ------------------------------------------- 17 política de rede do navegador --
+section('16b · disco do emulador: fontes, verificação de ISO e leitura por faixa');
+
+await test('disco a partir de um arquivo do computador lê por faixa, com validade checada', async () => {
+  const { criarDiscoDeArquivo, SETOR, OFFSET_PVD, MAX_LEITURA } = await import('../js/core/disc.js');
+  const bytes = new Uint8Array(64 * SETOR);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7) & 0xff;
+  // Um File falso com o mesmo contrato que o navegador dá: `slice().arrayBuffer()`.
+  const arquivo = {
+    name: 'jogo.iso', size: bytes.length,
+    slice(ini, fim) { return { arrayBuffer: async () => bytes.slice(ini, fim).buffer }; }
+  };
+  const disco = criarDiscoDeArquivo(arquivo);
+  assert.equal(disco.size, bytes.length);
+  assert.equal(disco.origem, 'arquivo');
+
+  const faixa = await disco.read(3 * SETOR, SETOR);
+  assert.equal(faixa.byteLength, SETOR, 'uma leitura = um setor, sem carregar a ISO inteira');
+  assert.deepEqual([...faixa.slice(0, 4)], [...bytes.slice(3 * SETOR, 3 * SETOR + 4)]);
+
+  // Faixa fora do disco e faixa gigante são recusadas ANTES de tocar no arquivo.
+  await assert.rejects(() => disco.read(bytes.length - 10, 20), /fora do disco/);
+  await assert.rejects(() => disco.read(0, MAX_LEITURA + 1), /acima do teto/);
+  await assert.rejects(() => disco.read(-1, 10), /offset inválido/);
+  await assert.rejects(() => disco.read(0, 0), /tamanho inválido/);
+
+  // Contador honesto: a janela mostra número medido, não estimado.
+  assert.equal(disco.stats.leituras, 1);
+  assert.equal(disco.stats.bytes, SETOR);
+  void OFFSET_PVD;
+});
+
+await test('identificarDisco aceita ISO9660 de verdade e recusa qualquer outra coisa', async () => {
+  const { identificarDisco, SETOR, OFFSET_PVD } = await import('../js/core/disc.js');
+
+  const montarISO = (rotulo = 'GTA SAN ANDREAS') => {
+    const dados = new Uint8Array(64 * SETOR);
+    const pvd = new DataView(dados.buffer, OFFSET_PVD, SETOR);
+    pvd.setUint8(0, 1);                                   // descritor primário
+    for (let i = 0; i < 5; i++) pvd.setUint8(1 + i, 'CD001'.charCodeAt(i));
+    pvd.setUint8(6, 1);                                   // versão
+    for (let i = 0; i < 32; i++) pvd.setUint8(40 + i, i < rotulo.length ? rotulo.charCodeAt(i) : 0x20);
+    pvd.setUint32(80, 32, true);                          // 32 setores de volume
+    return {
+      size: dados.length,
+      async read(offset, length) { return dados.slice(offset, offset + length); }
+    };
+  };
+
+  const info = await identificarDisco(montarISO());
+  assert.equal(info.tipo, 'ISO9660');
+  assert.equal(info.rotulo, 'GTA SAN ANDREAS', 'o rótulo sai do descritor, não de suposição');
+  assert.equal(info.setor, 32);
+
+  const vazio = { size: 64 * SETOR, async read(o, l) { return new Uint8Array(l); } };
+  await assert.rejects(() => identificarDisco(vazio), /não é uma ISO9660/);
+  const curto = { size: 1000, async read(o, l) { return new Uint8Array(l); } };
+  await assert.rejects(() => identificarDisco(curto), /pequeno demais/);
+
+  // Assinatura certa no lugar errado não engana: o descritor é lido no setor 16.
+  const deslocado = montarISO();
+  const original = deslocado.read;
+  deslocado.read = async (o, l) => {
+    const b = await original(o, l);
+    if (o === OFFSET_PVD) b.fill(0);
+    return b;
+  };
+  await assert.rejects(() => identificarDisco(deslocado), /não é uma ISO9660/);
+});
+
 section('17 · política de rede: o que o navegador do sistema pode alcançar');
 
 await test('URLs perigosas são recusadas com motivo, não com silêncio', () => {

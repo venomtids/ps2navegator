@@ -433,6 +433,37 @@ input,select,textarea{font:inherit;color:inherit}
 .browser .bar .btn.sm[disabled] { opacity: .32; cursor: not-allowed; }
 .browser .bar { flex-wrap: wrap; }
 .browser .bar .addr { min-width: 180px; }
+/* ---------------------------------------------------------------------------
+   Janela Jogos (emulador de PS2 — Núcleo OS §6.15)
+   Mesma anatomia de barra do navegador; o palco é preto porque o conteúdo é a
+   tela do console, não o cromo do sistema. */
+.jogos{display:flex;flex-direction:column;height:100%;min-height:0}
+.jogos .bar{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.jogos .bar .btn.sm[disabled]{opacity:.32;cursor:not-allowed}
+.jogos .pick{
+  max-width:300px;background:rgba(4,8,14,.72);border:1px solid var(--line);border-radius:var(--r-2);
+  color:var(--ink);font:400 11px/1 var(--mono);padding:7px 8px;outline:none;
+}
+.jogos .pick:focus{border-color:var(--line-2)}
+.jogos .pick:disabled{opacity:.4}
+.jogos .stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+.jogos .screen{display:block;width:100%;height:100%}
+.jogos .card{
+  position:absolute;inset:0;z-index:3;display:none;flex-direction:column;justify-content:center;gap:10px;
+  padding:24px;background:rgba(6,11,18,.94);
+}
+.jogos .card.on{display:flex}
+.jogos .card .ct{color:var(--amber);font:600 11.5px/1.4 var(--ui)}
+.jogos .card .cb{color:var(--ink-2);font:400 11px/1.6 var(--ui);max-width:74ch}
+.jogos .meta{
+  padding:6px 10px;border-top:1px solid var(--line);color:var(--ink-3);
+  font:400 10.5px/1.5 var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.jogos .alert{
+  padding:0 10px 8px;color:var(--amber);font:400 10.5px/1.5 var(--mono);display:none;
+}
+.jogos .alert.on{display:block}
+
 .browser .bnotas {
   display: none; max-height: 132px; overflow: auto; padding: 8px 12px;
   border-top: 1px solid var(--line); background: rgba(6,11,18,.72);

@@ -11,6 +11,8 @@ import { writeBlockReq } from './wire.js';
 import { safePath, dirName, baseName } from './util.js';
 
 export const BLOCK = 32 * 1024; // cabe com folga no anel de 64 KiB
+/** Teto de uma leitura por faixa (o emulador de PS2 lê em blocos de 1 MiB). */
+export const MAX_FAIXA = 1 << 20;
 
 export function createVFS(link, { log = () => {} } = {}) {
   let nextBlockId = 1;
@@ -67,6 +69,44 @@ export function createVFS(link, { log = () => {} } = {}) {
     }
   }
 
+  /**
+   * Leitura por FAIXA, para leitores de grande porte — o caso que existe hoje é o
+   * leitor de setores do emulador de PS2, que monta uma ISO de vários GB sem
+   * carregá-la na memória.
+   *
+   * Abre e fecha a sessão a cada chamada porque o worker `w-io` atende uma sessão
+   * por vez: reter a sessão durante o jogo travaria terminal, arquivos e o próprio
+   * instalador. Uma faixa é entregue em blocos de 32 KiB (o mesmo teto do resto do
+   * VMFS, dimensionado para o anel de 64 KiB) e faixas fora do arquivo são
+   * truncadas — quem chama decide se o tamanho curto é erro (o leitor de disco
+   * decide, e reclama: `core/disc.js`).
+   */
+  async function readRange(path, offset, length) {
+    const p = safePath(path);
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('faixa com offset inválido');
+    if (!Number.isSafeInteger(length) || length < 0) throw new Error('faixa com tamanho inválido');
+    if (length > MAX_FAIXA) throw new Error(`faixa de ${length} bytes acima do teto de ${MAX_FAIXA}`);
+    let session = null;
+    try {
+      session = await call('open', { path: p, mode: 'r' });
+      const inicio = Math.min(offset, session.size);
+      const fim = Math.min(offset + length, session.size);
+      const out = new Uint8Array(Math.max(0, fim - inicio));
+      for (let off = 0; off < out.length; off += BLOCK) {
+        const len = Math.min(BLOCK, out.length - off);
+        const req = new Uint8Array(16);
+        writeBlockReq(req, nextBlockId, inicio + off, len);
+        const chunk = await link.readBlock(nextBlockId, req);
+        nextBlockId = (nextBlockId + 1) >>> 0;
+        if (chunk.length !== len) throw new Error(`faixa curta em ${p} (${chunk.length}/${len})`);
+        out.set(chunk, off);
+      }
+      return out;
+    } finally {
+      if (session) await call('close', {}).catch(() => {});
+    }
+  }
+
   async function write(path, data) {
     const p = safePath(path);
     const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
@@ -99,6 +139,6 @@ export function createVFS(link, { log = () => {} } = {}) {
   /** Fecha o arquivo em escrita e devolve os bytes da página de journal se houver. */
   const journal = () => call('journal');
 
-  return { init, list, read, write, stat, mkdir, remove, rename, bench, usage, journal,
+  return { init, list, read, readRange, write, stat, mkdir, remove, rename, bench, usage, journal,
     get info() { return info; }, get cached() { return cache; }, path: { safePath, dirName, baseName } };
 }

@@ -251,6 +251,40 @@ Composição inicial: câmera na **via** (eixo `x = 20`, o mesmo centro de faixa
 de altura, olhando para o centro da cidade a 210 m — enquadramento de rua, não de drone. O
 contrato com o motor é visual: se a cidade não seguir a grade viária, o tráfego cruza prédio.
 
+### 6.15 Jogos (emulador de PS2)
+
+A janela é um palco preto com o cromo mínimo — o conteúdo é a tela do console, não
+o sistema. Anatomia, de cima para baixo:
+
+| Faixa | Tratamento | Conteúdo |
+|---|---|---|
+| Barra | mesma anatomia do §6.13 (`--sp-2`, altura 26 px, `.btn.sm`), com quebra de linha | Escolher ISO do computador · seletor de ISOs do PC virtual · Montar do PC virtual · Iniciar · Parar · Tela cheia |
+| Palco | `flex:1`, fundo `#000`, `overflow:hidden` | o iframe do núcleo Play! desenha a tela do jogo (sem moldura, sem sobreposição) |
+| Linha de estado | `--mono` 10,5 px, `--ink-3`, borda superior | `PS2 · Play! · <disco> · <tamanho> · ISO9660 · rótulo "<n>" · <setores> · origem <PC virtual|computador> · <leituras> leituras · <bytes> · última <ms> · <fps> fps · <situação>` |
+| Cartão de aviso | `rgba(6,11,18,.94)`, `--amber`, título 11,5 px + corpo 11 px até 74ch | o motivo exato de não dar para emular e como resolver |
+
+Regras de honestidade da janela:
+
+1. **Ambiente avaliado antes da interface.** Se falta `SharedArrayBuffer`, se a
+   página não está isolada ou se não há WebGL2, o cartão aparece **e** os controles
+   ficam desabilitados (`[disabled]` com opacidade .32, §6.13). Nunca existe botão
+   que só pode falhar.
+2. **Disco verificado antes de qualquer thread.** ISO sem descritor ISO9660 é
+   recusada com o tipo e a assinatura encontrados — não se cria VM para descobrir
+   isso 40 s depois.
+3. **Falha do núcleo vira cartão.** Erro do Play!, timeout de inicialização ou
+   falha ao carregar o adaptador: mensagem na frente do palco + toast. Tela preta
+   silenciosa é o pior resultado possível e está proibido por contrato.
+4. **Estado medido, não estimado.** FPS vem do próprio núcleo; leituras e bytes
+   vêm do contador do disco; "última leitura" é cronometrada no `read`. Sem
+   medida, o campo não aparece.
+5. **O que o sistema não faz, ele diz.** Baixar jogos, catálogo do launcher e save
+   state não existem aqui — então não há botão cinza "em breve" fingindo roadmap.
+
+Micro-interações: a janela **foca o palco** ao iniciar (teclado vai para o jogo);
+"Tela cheia" pede fullscreen do palco e degrada com aviso quando o navegador
+recusa; fechar a janela encerra núcleo, pthreads e áudio antes de sair.
+
 ## 7. Micro-interações
 
 | Gesto | Feedback |
@@ -343,6 +377,11 @@ arrastar/redimensionar com área ampliada.
 | Cidade: clipe de plano próximo | `js/apps/game.js` (`recortarProximo`, `linhaEmTela`) |
 | Cidade: telemetria do renderizador | `js/main.js` (`reportGame`) → `js/ui/hud.js` |
 | Cidade: quadro de evidência fora do navegador | `tools/render-cidade.mjs` + `tools/engine-worker-host.mjs` |
+| Jogos: portão de ambiente | `js/apps/jogos.js` (`avaliarAmbiente`) |
+| Jogos: fontes de disco e verificação ISO9660 | `js/core/disc.js` |
+| Jogos: leitura por faixa no VMFS | `js/core/vfs.js` (`readRange`) |
+| Jogos: janela e ciclo do emulador | `js/apps/jogos.js` |
+| Jogos: núcleo Play! (herdado, verificado no boot) | `../emulator/*` servido por `/emulator/*` em `server.js` |
 
 O protótipo é a **prova executável** deste documento: os valores citados aqui são os
 valores em `tokens.css`, e as regras de §2.1 (teto de área, 3 superfícies, fallback)

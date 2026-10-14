@@ -22,6 +22,7 @@ import { createTerminal } from './apps/terminal.js';
 import { createFiles } from './apps/files.js';
 import { createBrowser } from './apps/browser.js';
 import { createGame } from './apps/game.js';
+import { createJogos } from './apps/jogos.js';
 import { createSettings } from './apps/settings.js';
 
 const DEFAULTS = Object.freeze({
@@ -188,8 +189,13 @@ export async function startOS() {
     { id: 'arquivos', title: 'Arquivos', icon: 'files', w: 760, h: 460,
       create: () => createFiles({ vfs, toast: toasts, onDropFiles: (dir, files) => installFiles(dir, files) }) },
     { id: 'cidade', title: 'Cidade — motor 3D', icon: 'game', w: 900, h: 560, create: makeGame },
+    { id: 'jogos', title: 'Jogos — PS2 (Play!)', icon: 'disc', w: 980, h: 640, create: makeJogos },
     { id: 'ajustes', title: 'Configurações', icon: 'settings', w: 720, h: 560, hidden: true }
   ];
+
+  function makeJogos() {
+    return createJogos({ vfs, os, toast: toasts });
+  }
 
   function makeGame() {
     const canvas = document.createElement('canvas');
@@ -630,10 +636,10 @@ function buildShell({ os, wm, hud, launch, bus }) {
 
   const ICONS = {
     terminal: 'terminal', navegador: 'globe', arquivos: 'files', cidade: 'game',
-    ajustes: 'settings', hud: 'hud'
+    jogos: 'disc', ajustes: 'settings', hud: 'hud'
   };
   const desktop = $('#icons');
-  for (const [id, label] of Object.entries({ terminal: 'Terminal', navegador: 'Navegador', arquivos: 'Arquivos', cidade: 'Cidade 3D', ajustes: 'Configurações', hud: 'Telemetria' })) {
+  for (const [id, label] of Object.entries({ terminal: 'Terminal', navegador: 'Navegador', arquivos: 'Arquivos', cidade: 'Cidade 3D', jogos: 'Jogos (PS2)', ajustes: 'Configurações', hud: 'Telemetria' })) {
     desktop.append(el('button', {
       class: 'dicon', 'data-app': id,
       ondblclick: () => id === 'hud' ? hud.toggle() : launch(id),
@@ -643,7 +649,7 @@ function buildShell({ os, wm, hud, launch, bus }) {
   }
 
   const dock = $('#dock');
-  for (const [id, label] of Object.entries({ terminal: 'Terminal', arquivos: 'Arquivos', cidade: 'Cidade 3D', hud: 'Telemetria', ajustes: 'Configurações' })) {
+  for (const [id, label] of Object.entries({ terminal: 'Terminal', arquivos: 'Arquivos', cidade: 'Cidade 3D', jogos: 'Jogos (PS2)', hud: 'Telemetria', ajustes: 'Configurações' })) {
     const item = el('button', {
       class: 'dockitem', 'data-app': id, 'aria-label': label,
       onclick: () => id === 'hud' ? hud.toggle() : launch(id)

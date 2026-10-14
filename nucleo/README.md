@@ -238,6 +238,77 @@ difusão, névoa linear e acento no teto dos prédios; o modo software não tem 
 teto de objetos e a ordem do pintor, ambos declarados na linha de estado). Pessoas, missões e
 semáforos seguem como `[R]` no roadmap — não são simulados hoje, então não são mostrados.
 
+## Rodar jogos de PS2 no PC virtual
+
+A janela **Jogos** roda discos de PS2 dentro do NÚCLEO OS. O emulador não é
+reimplementado nem duplicado aqui: é o núcleo **Play!** que **já está versionado na
+raiz deste repositório** (`emulator/play/`), servido pelo NÚCLEO em `/emulator/*` e
+usado pelo **mesmo adaptador** da página do launcher. Uma fonte de verdade para um
+binário de 2,4 MB — e o `server.js` confere o **SHA256** contra o `provenance.json` a
+cada boot: se o binário não bate, ele não é servido.
+
+```text
+Escolher ISO do computador ──→ File.slice(offset,len)          (zero cópia, 1 clique)
+Montar do PC virtual ────────→ vfs.readRange(path,off,len)     (setores do OPFS)
+        │
+        ├─ verificação ISO9660: descritor primário no setor 16 (assinatura CD001)
+        │     se não for ISO, o disco é recusado com o motivo — antes de criar thread
+        └─ createPS2({ disc }) → iframe /emulator/host.html → Play! (pthreads) → WebGL2
+```
+
+### O limite real (e por que a janela não finge)
+
+O Play! usa **threads Wasm**, que dependem de `SharedArrayBuffer`. SAB só existe em
+página `crossOriginIsolated` (COOP+COEP) — o `server.js` serve tudo com esses
+cabeçalhos, então **em aba própria funciona**. Em **iframe de terceiro** (o caso do
+preview embutido, com origem opaca) não há isolamento, e **emulador de PS2 não roda**:
+nem aqui, nem em nenhum outro emulador de PS2 para navegador.
+
+Nessa situação a janela mostra um cartão explicando o motivo e **desabilita** os
+controles, em vez de oferecer um botão "Iniciar" que sempre falha:
+
+| Situação | O que aparece |
+|---|---|
+| iframe de terceiro sem isolamento | "…não concede isolamento — abra o NÚCLEO OS em **aba própria** para o emulador iniciar; todo o resto do sistema continua funcionando aqui." |
+| aberto por `file://` | instrução para servir por `npm start` (COOP/COEP não existem em `file://`) |
+| sem WebGL2 | pedido de aceleração de hardware |
+| arquivo que não é ISO | recusa com o tipo e a assinatura encontrados no descritor |
+| erro do núcleo | cartão na frente do palco + toast — nunca tela preta silenciosa |
+
+### Como usar
+
+1. `npm start` no NÚCLEO OS e abra `http://localhost:3400` **em aba própria**.
+2. Duplo clique em **Jogos** no desktop (ou `Ctrl+K` → *Jogos*).
+3. **Escolher ISO do computador** → aponte sua ISO de PS2 (`.iso`/`.img`/`.bin`).
+   Nada é copiado: o leitor usa `File.slice` por setor.
+4. Ou coloque a ISO **dentro do PC virtual** (arraste para o desktop → cai em
+   `~/Downloads`), e use **Montar do PC virtual** — a leitura é `readRange` sobre o
+   OPFS, em blocos de 32 KiB.
+5. **Iniciar** cria a VM; clique no palco para o teclado ir para o jogo
+   (`WASD` + `J K U I`, conforme o mapeamento do núcleo). **Parar** encerra VM,
+   pthreads e áudio. Fechar a janela também encerra.
+
+**Nada de jogo é distribuído aqui.** O NÚCLEO não baixa ISO, não traz catálogo e não
+guarda save state — o disco é o seu arquivo.
+
+### O que foi verificado (e o que não foi)
+
+Medido neste repositório, sem navegador:
+
+| Item | Prova |
+|---|---|
+| Leitura por faixa sobre o worker de I/O real | `tests/core.mjs`: uma imagem de 4 MiB passa por `js/core/disc.js` em faixas de 1 MiB e volta com **SHA256 idêntico** |
+| Verificação ISO9660 | aceita descritor válido (lê o **rótulo do disco**), recusa lixo, recusa arquivo curto e recusa assinatura fora do setor 16 |
+| Portão de ambiente | 6 casos testados, do sem-SAB ao pronto (`avaliarAmbiente`) |
+| Interface | com ambiente capaz: aceita ISO, recusa não-ISO, habilita Iniciar só com disco verificado, e **declara** falha do núcleo em vez de tela preta |
+| Sem isolamento (preview) | o cartão aparece, nenhum iframe é criado e **todo** controle fica desabilitado |
+| Rota `/emulator/*` | 200 com `application/wasm` correto, COOP/COEP presentes, `..`/`%2e%2e`/`%2f` → 403, SHA256 conferido no boot |
+
+**Não verificado por mim:** o boot do jogo em si (Play! → menu do GTA). Isso exige
+navegador com GPU e aba isolada, e neste ambiente de construção não existe nem GPU
+nem navegador — então **não afirmo** que o jogo chega ao menu. O que afirmo é o
+caminho até lá: disco, verificação, portão, ponte e limpeza de recursos.
+
 ## O que muda em preview embutido (iframe de terceiros)
 
 Um iframe não herda isolamento de origem: sem `crossOriginIsolated`, o navegador **não expõe**
@@ -253,6 +324,7 @@ nunca silenciosa:
 | OPFS (disco virtual) | persistente | funciona se o host permitir storage; senão, memória volátil declarada |
 | WebGL2 (cena 3D) | sim | sim, se o host permitir GPU no iframe; **se não permitir, o motor da cidade cai para o modo software (canvas 2D) e diz isso na própria janela** |
 | Transporte exibido no HUD | `RING/SAB` | `MESSAGE` + aviso na interface |
+| Emulador de PS2 (janela Jogos) | funciona (pthreads + WebGL2) | **não funciona**: sem isolamento de origem não existe SharedArrayBuffer — a janela explica isso e desabilita os controles |
 
 Três falhas reais foram encontradas e corrigidas justamente testando este caminho — todas derrubavam
 o preview e nenhuma aparecia com `SharedArrayBuffer` disponível:
@@ -288,6 +360,7 @@ Regra: nada é simulado para parecer que funciona. O que não existe aparece com
 | Navegador (motor próprio) | funcional | busca pelo proxy com política anti-SSRF, CSS externo, layout de blocos/inline, imagens, pintura em canvas, links clicáveis por hit-test, zoom, rolagem e modo texto; declara em notas tudo o que não renderiza |
 | Motor de CSS e layout | funcional | cascata com especificidade/herança/shorthands/`@media`, caixas com margem-padding-borda, fluxo inline com medição real e quebra por palavra (`js/core/css.js`, `js/core/layout.js`) |
 | Instalador de arquivos | funcional | arrastar-e-soltar, paleta, janela Arquivos e `install` no terminal; sanitização de nome, colisão sem sobrescrita, cota checada antes da escrita |
+| Jogos (PS2, núcleo Play! herdado) | funcional* | disco do computador (`File.slice`) ou do disco virtual (`readRange` sobre OPFS), verificação ISO9660 com rótulo, portão de ambiente, FPS medido do núcleo, parada que encerra VM/pthreads/áudio; *em aba isolada — no preview o motivo é declarado na janela |
 | Motor de mundo aberto | funcional | ECS SoA com passo fixo de 120 Hz, física de seguimento de faixa, IA de tráfego, snapshot binário; a cena 3D desenha em WebGL2 instanciado e, sem WebGL2, no mesmo dia em modo software |
 | Telemetria (HUD) | funcional | FPS, P50/P95 de quadro, custo por worker, MB/s de I/O, entidades, ticks, transporte IPC |
 | Kernel Linux (Debian) | **emulado, fase inicial** | vCPU simulada com `SYS_EXEC`/`tick`; o terminal é o do NÚCLEO OS, **não** um Linux real |
@@ -317,8 +390,8 @@ matriz de falha → resposta e roadmap:
 
 ```sh
 npm test               # núcleo + interface, sem navegador e sem rede
-npm run test:core      # IPC (bytes, wrap, drops), VFS real sobre worker_threads, seqlock, grafo de imports
-npm run test:ui        # DOM real via jsdom: boot, window manager, HUD, toasts, boot degradado
+npm run test:core      # IPC (bytes, wrap, drops), VFS real sobre worker_threads, disco do emulador (faixas + ISO), seqlock, grafo de imports
+npm run test:ui        # DOM real via jsdom: boot, window manager, HUD, toasts, boot degradado, portão do emulador
 npm run test:engine    # motor de página (cascata, layout, pintura) + motor de mundo (geometria/CULL_FACE, vias, pintor, WebGL2 falso)
 npm run test:browser   # Playwright/Chromium — exige `npx playwright install chromium`
 ```
@@ -345,15 +418,16 @@ index.html          shell do desktop (sem CDN, funciona offline)
 server.js           servidor estático mínimo com COOP/COEP (zero dependências)
 css/tokens.css      tokens do design system (fonte única de verdade)
 css/os.css          contrato visual de todos os componentes
-js/core/            ipc · link · wire · snapshot · vfs · vfs-local · import · fetchpolicy · htmltext · geom · wm · bus · util · mat4
+js/core/            ipc · link · wire · snapshot · vfs · vfs-local · disc · import · fetchpolicy · htmltext · geom · wm · bus · util · mat4
 server/             fetch-route.js (rota /api/fetch do navegador do sistema)
 js/apps/gfx/        paint.js (canvas + hit-test) · images.js (bytes → bitmap)
 js/core/            + css.js (cascata) · layout.js (caixas) · srcpage.js (HTML+CSS+imagens)
 js/ui/              hud · toast · icons
-js/apps/            terminal · browser · files · game · settings
+js/apps/            terminal · browser · files · game · jogos (PS2) · settings
 js/boot.js          boot + sondagem real de capacidades do navegador
 js/main.js          orquestração: workers, barramentos, VFS, WM, HUD, registro de apps
 workers/            kernel.worker · engine.worker · io.worker
+../emulator/        núcleo Play! (PS2) herdado do launcher, servido em /emulator/* e verificado por SHA256
 tools/              render-site.mjs (motor de página contra uma URL real) · render-cidade.mjs
                     (um quadro real do motor de mundo em PNG) · engine-worker-host.mjs
 tests/              core.mjs · ui.mjs · browser.mjs · worker-fixture.mjs · io-worker-host.mjs

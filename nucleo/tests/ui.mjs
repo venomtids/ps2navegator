@@ -347,6 +347,31 @@ await test('o desktop monta inteiro mesmo sem worker, OPFS e canvas', async () =
     // Abrir janela sem engine: precisa aparecer a declaração, não uma cena vazia mentirosa.
     const win = os.wm.open({ id: 'cidade', app: 'game', title: 'Cidade', w: 900, h: 560, create: () => ({ el: document.createElement('div') }) });
     assert.ok(win, 'o window manager precisa abrir uma janela mesmo sem subsistemas');
+
+    // --- Jogos (PS2): o portão de honestidade do preview ---------------------
+    // Sem isolamento de origem não existe SharedArrayBuffer, e sem ele o núcleo
+    // Play! (pthreads) não inicia. O contrato desta janela é: dizer o motivo exato,
+    // desabilitar o que não pode funcionar e NÃO criar nenhum iframe de emulador —
+    // jamais uma tela preta que pareça travamento.
+    assert.ok(os.apps.some(a => a.id === 'jogos'), 'o app Jogos precisa estar registrado no sistema');
+    os.launch('jogos');
+    await sleep(60);
+    assert.ok(os.wm.has('jogos'), 'a janela Jogos precisa abrir');
+    const jogos = os.wm.instance('jogos');
+    assert.ok(jogos, 'a instância da janela Jogos precisa estar acessível');
+    assert.equal(jogos.ambiente.pronto, false, 'sem isolamento/SAB a emulação não pode ser oferecida');
+    assert.match(jogos.ambiente.motivo, /SharedArrayBuffer|isolamento/);
+    assert.ok(jogos.ambiente.comoResolver.length > 40, 'o motivo precisa vir com o que fazer a respeito');
+    const cartao = document.querySelector('.jogos .card');
+    assert.ok(cartao?.classList.contains('on'), 'o cartão de aviso precisa estar visível');
+    assert.match(cartao.textContent, /SharedArrayBuffer|isolamento/, 'o cartão mostra o motivo exato');
+    const botoes = [...document.querySelectorAll('.jogos .bar .btn')];
+    assert.ok(botoes.length >= 4, `a barra precisa ter os controles (${botoes.length})`);
+    assert.ok(botoes.every(b => b.disabled), 'nenhum controle que não pode funcionar fica habilitado');
+    assert.equal(document.querySelector('.jogos iframe'), null, 'nenhum iframe de emulador pode ser criado');
+    assert.match(jogos.el.textContent, /indisponível/i, 'a linha de estado declara a indisponibilidade');
+    await jogos.onClose();
+
     await os.destroy();
   } finally {
     try { await os?.destroy(); } catch { /* já desmontado */ }
@@ -357,6 +382,88 @@ await test('o desktop monta inteiro mesmo sem worker, OPFS e canvas', async () =
   }
 });
 
+
+// ------------------------------------------------------------------ jogos -----
+section('Jogos (PS2): portão de ambiente, montagem de disco e recusa honesta');
+
+await test('avaliarAmbiente nomeia o que falta, em vez de deixar tentar e falhar', async () => {
+  const { avaliarAmbiente } = await import('../js/apps/jogos.js');
+  assert.equal(avaliarAmbiente({}).pronto, false);
+  assert.equal(avaliarAmbiente({}).motivo, 'SharedArrayBuffer indisponível nesta página');
+  assert.match(avaliarAmbiente({ sab: true, isolated: false }).motivo, /isolamento/);
+  assert.match(avaliarAmbiente({ sab: true, isolated: false, emIframe: true }).comoResolver, /iframe/,
+    'dentro de um preview embutido o texto precisa apontar o iframe como causa');
+  assert.match(avaliarAmbiente({ sab: true, isolated: false, emIframe: false }).comoResolver, /COOP\/COEP|localhost/);
+  assert.match(avaliarAmbiente({ sab: true, isolated: true, webgl2: false }).motivo, /WebGL2/);
+  assert.equal(avaliarAmbiente({ sab: true, isolated: true, webgl2: true }).pronto, true);
+  assert.equal(avaliarAmbiente({ sab: true, isolated: true, webgl2: true }).comoResolver, '');
+});
+
+await test('com ambiente capaz: aceita ISO de verdade, recusa lixo e declara a falha do núcleo', async () => {
+  const { createJogos } = await import('../js/apps/jogos.js');
+  const host = fresh();
+  const avisos = [];
+  const jogos = createJogos({
+    vfs: { async refresh() { return []; }, async stat() { throw new Error('sem arquivo'); } },
+    os: { capabilities: { isolated: true, sab: true, webgl2: true } },
+    toast: { err: (t) => avisos.push(t), warn: (t) => avisos.push(t), ok: () => {} }
+  });
+  host.append(jogos.el);
+
+  /** ISO sintética com descritor primário válido e rótulo próprio. */
+  const isoFalsa = (setores, rotulo) => {
+    const dados = new Uint8Array(setores * 2048);
+    const pvd = new DataView(dados.buffer, 16 * 2048, 2048);
+    pvd.setUint8(0, 1);
+    for (let i = 0; i < 5; i++) pvd.setUint8(1 + i, 'CD001'.charCodeAt(i));
+    for (let i = 0; i < 32; i++) pvd.setUint8(40 + i, i < rotulo.length ? rotulo.charCodeAt(i) : 0x20);
+    return {
+      name: 'jogo.iso', size: dados.length,
+      slice: (ini, fim) => ({ arrayBuffer: async () => dados.slice(ini, fim).buffer })
+    };
+  };
+
+  const entrada = document.querySelector('.jogos input[type=file]');
+  const soltar = async arquivo => {
+    Object.defineProperty(entrada, 'files', { value: [arquivo], configurable: true });
+    entrada.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await sleep(60);
+  };
+
+  try {
+    assert.equal(jogos.ambiente.pronto, true);
+    assert.equal(document.querySelector('.jogos .card').classList.contains('on'), false,
+      'com ambiente capaz, nenhum cartão de bloqueio');
+    assert.equal(document.querySelector('.jogos .bar .btn').disabled, false, 'escolher ISO fica habilitado');
+
+    await soltar(isoFalsa(64, 'MEU JOGO'));
+    assert.equal(jogos.stats.pronto, true, 'a ISO verificada precisa ficar pronta para iniciar');
+    assert.equal(jogos.disco.origem, 'arquivo');
+    assert.match(jogos.el.textContent, /ISO9660/);
+    assert.match(jogos.el.textContent, /MEU JOGO/, 'o rótulo sai do descritor da ISO, não de suposição');
+    assert.match(jogos.el.textContent, /disco pronto/);
+
+    // Arquivo que não é ISO: recusado ANTES de qualquer núcleo ser criado.
+    const lixo = { name: 'lixo.iso', size: 64 * 2048, slice: (a, b) => ({ arrayBuffer: async () => new Uint8Array(b - a).buffer }) };
+    await soltar(lixo);
+    assert.equal(jogos.stats.pronto, false);
+    assert.match(jogos.el.textContent, /não é uma ISO9660/);
+    assert.ok(document.querySelector('.jogos .card').classList.contains('on'), 'a recusa precisa estar na tela');
+    assert.equal(jogos.emulador, null, 'nada pode ser iniciado com disco não verificado');
+
+    // Falha ao carregar o núcleo (aqui, sem servidor) tem que ser DECLARADA.
+    await soltar(isoFalsa(64, 'OUTRO JOGO'));
+    const botaoIniciar = [...document.querySelectorAll('.jogos .bar .btn')]
+      .find(b => b.textContent.trim() === 'Iniciar');
+    assert.ok(botaoIniciar && !botaoIniciar.disabled, 'com disco verificado, Iniciar precisa estar habilitado');
+    botaoIniciar.click();
+    await sleep(120);
+    assert.equal(jogos.emulador, null);
+    assert.ok(avisos.length >= 1, 'a falha vira aviso para o usuário');
+    assert.match(document.querySelector('.jogos .card').textContent, /Não foi possível iniciar|Falha/,
+      'o cartão precisa explicar a falha em vez de deixar uma tela preta');
+  } finally { await jogos.onClose(); }
+});
 
 // ------------------------------------------------------------- navegador -----
 section('navegador de texto (HTML → texto, links, histórico e download)');
