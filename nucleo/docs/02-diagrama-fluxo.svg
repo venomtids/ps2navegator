@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 812" width="1320" height="812" role="img" aria-labelledby="t d">
+  <title id="t">NÚCLEO OS — Arquitetura Geral de Alto Nível (diagrama de fluxo)</title>
+  <desc id="d">Diagrama de fluxo do Virtual PC: thread principal com o desktop (WM, dock, HUD), quatro workers (kernel Debian, motor de jogo, E/S OPFS, raster opcional) ligados por anéis SPSC em SharedArrayBuffer, camada de GPU com WebGPU e fallback WebGL 2.0, e camada de armazenamento (OPFS, HTTP Range via proxy validado e cache LRU em RAM).</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#04070e"/>
+      <stop offset="1" stop-color="#070d18"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#35f0ff" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#35f0ff" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="glassv" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a855f7" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#a855f7" stop-opacity="0.03"/>
+    </linearGradient>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#35f0ff"/>
+    </marker>
+    <marker id="arv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#a855f7"/>
+    </marker>
+    <marker id="arl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8fff5a"/>
+    </marker>
+    <style>
+      .ttl  { font: 600 22px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #dceaf8; }
+      .sub  { font: 400 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #7b90a8; }
+      .band { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #35f0ff; letter-spacing: .14em; }
+      .box  { font: 600 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #dceaf8; }
+      .win  { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #35f0ff; }
+      .winv { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #c9a2ff; }
+      .l    { font: 400 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #93a8bf; }
+      .lm   { font: 400 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #6b7f96; }
+      .neu  { fill: none; stroke: rgba(53,240,255,.22); }
+      .neuv { fill: none; stroke: rgba(168,85,247,.30); }
+      .flow { fill: none; stroke: #35f0ff; stroke-width: 1.6; marker-end: url(#ar); }
+      .flowv{ fill: none; stroke: #a855f7; stroke-width: 1.6; marker-end: url(#arv); stroke-dasharray: 5 4; }
+      .flowl{ fill: none; stroke: #8fff5a; stroke-width: 1.6; marker-end: url(#arl); }
+      .dot  { fill: #35f0ff; }
+    </style>
+  </defs>
+
+  <rect width="1320" height="812" fill="url(#bg)"/>
+  <g opacity=".5">
+    <path d="M0 812 L1320 300" stroke="rgba(53,240,255,.05)" stroke-width="1"/>
+    <path d="M0 760 L1320 220" stroke="rgba(53,240,255,.05)" stroke-width="1"/>
+    <path d="M0 700 L1320 150" stroke="rgba(168,85,247,.05)" stroke-width="1"/>
+  </g>
+
+  <text class="ttl" x="46" y="46">NÚCLEO OS <tspan fill="#35f0ff">//</tspan> arquitetura de fluxo</text>
+  <text class="sub" x="46" y="68">1 documento `/os` · N workers sem estado partilhado excepto anéis SPSC e snapshots · nenhum sistema bloqueia o quadro</text>
+
+  <!-- ================= thread principal ================= -->
+  <rect x="46" y="92" width="1228" height="76" rx="12" fill="url(#glass)" class="neu"/>
+  <text class="band" x="66" y="115">MAIN THREAD — SEM BLOQUEIO (16,6 ms por quadro a 60 Hz)</text>
+  <text class="box" x="66" y="140">NÚCLEO WM · Dock · Taskbar · HUD · Settings · App Registry · Palette</text>
+  <text class="l"   x="66" y="158">só DOM, input, agendamento; recebe estatísticas prontas — nunca simula nem desenha pesado.</text>
+
+  <!-- fan-out para workers -->
+  <path class="flow" d="M170 168 L170 214"/>
+  <path class="flow" d="M470 168 L470 214"/>
+  <path class="flow" d="M790 168 L790 214"/>
+  <path class="flow" d="M1090 168 L1090 214"/>
+  <path class="flow" d="M1140 168 L1140 214"/>
+
+  <!-- ================= barramento ================= -->
+  <rect x="46" y="214" width="1228" height="58" rx="10" fill="rgba(53,240,255,.06)" stroke="rgba(53,240,255,.38)"/>
+  <text class="band" x="66" y="238">BARRAMENTO ipc.ring — SharedArrayBuffer · 2 canais SPSC por par (a→b, b→a)</text>
+  <text class="l"   x="66" y="257">quadro: u32 len | u16 opcode | u16 flags · wrap com marcador · sem locks: C_WRITTEN / C_READ · wake por Atomics.waitAsync (MESSAGE como degradação)</text>
+
+  <!-- ================= workers ================= -->
+  <path class="flow" d="M170 272 L170 300"/>
+  <path class="flow" d="M470 272 L470 300"/>
+  <path class="flow" d="M790 272 L790 300"/>
+  <path class="flowv" d="M1090 272 L1090 300"/>
+
+  <g>
+    <rect x="46" y="300" width="248" height="150" rx="12" fill="url(#glass)" class="neu"/>
+    <text class="win" x="64" y="326">w-kernel</text>
+    <text class="box" x="64" y="348">Debian vCPU</text>
+    <text class="l"   x="64" y="368">SYS_EXEC · SYS_OUT</text>
+    <text class="l"   x="64" y="386">tick 120 Hz (2^18 cél.)</text>
+    <text class="l"   x="64" y="404">P50/P95 do tick</text>
+    <text class="lm"  x="64" y="428">Play![P] · v86[B] · CheerpX</text>
+  </g>
+
+  <g>
+    <rect x="346" y="300" width="248" height="150" rx="12" fill="url(#glass)" class="neu"/>
+    <text class="win" x="364" y="326">w-engine</text>
+    <text class="box" x="364" y="348">motor aberto (SoA)</text>
+    <text class="l"   x="364" y="368">física · tráfego · missões</text>
+    <text class="l"   x="364" y="386">120 Hz · acumulador ≤ 8</text>
+    <text class="l"   x="364" y="404">snapshot 8 campos / entidade</text>
+    <text class="lm"  x="364" y="428">-O3 -flto -msimd128</text>
+  </g>
+
+  <g>
+    <rect x="646" y="300" width="248" height="150" rx="12" fill="url(#glass)" class="neu"/>
+    <text class="win" x="664" y="326">w-io</text>
+    <text class="box" x="664" y="348">NVMe virtual</text>
+    <text class="l"   x="664" y="368">OPFS · SyncAccessHandle</text>
+    <text class="l"   x="664" y="386">blocos 32 KiB · FS_OP</text>
+    <text class="l"   x="664" y="404">MB/s e ops medidas</text>
+    <text class="lm"  x="664" y="428">fallback: createWritable</text>
+  </g>
+
+  <g>
+    <rect x="946" y="300" width="328" height="150" rx="12" fill="url(#glassv)" class="neuv"/>
+    <text class="winv" x="964" y="326">w-raster (opcional)</text>
+    <text class="box"  x="964" y="348">OffscreenCanvas + 2 threads</text>
+    <text class="l"    x="964" y="368">paralelização de desenho de multicolor</text>
+    <text class="l"    x="964" y="386">ativos pesados (cidade densa)</text>
+    <text class="l"    x="964" y="404">transferControlToOffscreen</text>
+    <text class="lm"   x="964" y="428">quando WebGL2, não WebGPU</text>
+  </g>
+
+  <!-- ================= GPU ================= -->
+  <path class="flow" d="M170 450 L170 486"/>
+  <path class="flow" d="M470 450 L470 486"/>
+  <path class="flow" d="M790 450 L790 486"/>
+  <path class="flowv" d="M1090 450 L1090 486"/>
+
+  <g>
+    <rect x="46" y="486" width="560" height="140" rx="12" fill="url(#glass)" class="neu"/>
+    <text class="band" x="66" y="510">GPU — CAMINHO PRIMÁRIO: WEBGPU</text>
+    <text class="l"   x="66" y="534">compute: culling por oclusão + frustum · partículas · deformação de malha</text>
+    <text class="l"   x="66" y="552">render: shadow → opaco → transparente → pós · buffers de VRAM alocados à mão</text>
+    <text class="l"   x="66" y="570">draw list instanciada · bind groups reutilizados · 0 alocações por quadro</text>
+    <text class="lm"  x="66" y="596">orçamento 6–11 ms (balanced) · VRAM declarada somada e rotulada ESTIMADA</text>
+    <text class="lm"  x="66" y="614">F32 · sem f64 em WGSL · sem pointers/borrow</text>
+  </g>
+
+  <path class="flowv" d="M606 556 L672 556"/>
+
+  <g>
+    <rect x="672" y="486" width="602" height="140" rx="12" fill="url(#glassv)" class="neuv"/>
+    <text class="band" x="692" y="510" fill="#c9a2ff">FALLBACK — WEBGL 2.0</text>
+    <text class="l"   x="692" y="534">sem compute: culling/partículas caem para vertex/fragment + transform feedback</text>
+    <text class="l"   x="692" y="552">KTX2/BasisU · ETC2/ASTC · sem bindless (uniform buffers em lotes)</text>
+    <text class="l"   x="692" y="570">mesmo contrato de opcodes; o motor não sabe qual caminho está ativo</text>
+    <text class="lm"  x="692" y="596">seleção em boot: `probeCapabilities()` responde webgpu/webgl2 e o HUD mostra o backend real</text>
+    <text class="lm"  x="692" y="614">sem WebGL2 → só o desktop Debian; sem mentir capacidade</text>
+  </g>
+
+  <!-- ================= armazenamento ================= -->
+  <path class="flowl" d="M170 626 L170 668"/>
+  <path class="flowl" d="M790 626 L790 668"/>
+
+  <g>
+    <rect x="46" y="668" width="360" height="112" rx="12" fill="rgba(143,255,90,.05)" stroke="rgba(143,255,90,.28)"/>
+    <text class="band" x="66" y="692" fill="#8fff5a">NVMe VIRTUAL — OPFS</text>
+    <text class="l"   x="66" y="714">raiz por perfil · quotas e uso medidos</text>
+    <text class="l"   x="66" y="732">/boot /etc /usr /var /home/nucleo</text>
+    <text class="lm"  x="66" y="754">só o worker w-io toca o disco · journal de consistência</text>
+  </g>
+
+  <g>
+    <rect x="430" y="668" width="360" height="112" rx="12" fill="rgba(53,240,255,.05)" stroke="rgba(53,240,255,.28)"/>
+    <text class="band" x="450" y="692">HTTP RANGE — DISCOS REMOTOS</text>
+    <text class="l"   x="450" y="714">/api/game/* → /api/stream-iso (Range)</text>
+    <text class="l"   x="450" y="732">blocos ≤ 2 MiB · ≤ 8 ativos · abort 45 s</text>
+    <text class="lm"  x="450" y="754">origem em allowlist · nunca baixa a ISO inteira</text>
+  </g>
+
+  <g>
+    <rect x="814" y="668" width="460" height="112" rx="12" fill="rgba(168,85,247,.05)" stroke="rgba(168,85,247,.26)"/>
+    <text class="band" x="834" y="692" fill="#c9a2ff">CACHE LRU EM RAM — SÓ PARA PICOS</text>
+    <text class="l"   x="834" y="714">media/streaming: setores quentes + streaming de assets</text>
+    <text class="l"   x="834" y="732">teto rígido por perfil · nunca é apresentado como RAM extra</text>
+    <text class="lm"  x="834" y="754">estouro → descarta e recarrega; métrica honesta no HUD (P50/P95)</text>
+  </g>
+
+  <!-- legenda de honestidade -->
+  <text class="lm" x="46" y="800">[P] produção · [B] ponte · [R] referência de estudo — nenhuma capacidade é afirmada sem probe em execução (NÚCLEO OS §0).</text>
+</svg>

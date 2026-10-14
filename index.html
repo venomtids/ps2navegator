@@ -82,9 +82,6 @@ main{position:relative;z-index:1;max-width:1520px;margin:auto;padding:30px 26px 
 .led.hot::before{background:var(--hot);box-shadow:0 0 9px var(--hot)}
 .led.warn{color:#ffcf5a;border-color:rgba(255,207,90,.38)}
 .led.warn::before{background:#ffcf5a;box-shadow:0 0 9px #ffcf5a}
-a.led{text-decoration:none}
-a.led:hover{color:var(--neon);border-color:var(--line2);background:rgba(53,240,255,.07)}
-a.led:hover::before{background:var(--neon);box-shadow:0 0 9px var(--neon)}
 
 /* ---------- grade e painéis ---------- */
 .layout{display:grid;grid-template-columns:308px 1fr;gap:20px}
@@ -313,7 +310,6 @@ a:hover{text-decoration:underline}
     <span class="led" id="ledCore">CORE</span>
     <span class="led" id="ledLib">LIB</span>
     <span class="led" id="ledIso">ISOLAMENTO</span>
-    <a class="led link" id="ledOS" href="/os" title="Abrir o Virtual PC (SECTOR OS ~ Debian + engine)">VIRTUAL PC →</a>
   </div>
 </header>
 

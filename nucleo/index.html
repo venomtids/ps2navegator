@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>NÚCLEO OS — Virtual PC no navegador</title>
+<!-- Sem CDN: o desktop precisa funcionar offline e sob COOP/COEP restritivo. -->
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/os.css">
+</head>
+<body>
+
+<!-- camada VÉU: grade em perspectiva + aurora -->
+<div class="void" id="void" aria-hidden="true"></div>
+
+<!-- camada VIDRO: barra de status -->
+<header class="statusbar" id="statusbar">
+  <div class="brand">
+    <span class="sigil" aria-hidden="true"></span>
+    <b>NÚCLEO<span> OS</span></b>
+  </div>
+  <span class="lbl" id="session">sessão local</span>
+  <span class="spacer"></span>
+  <div class="tokens">
+    <button class="token" id="tok-gpu" title="Backend de renderização em uso">GPU</button>
+    <button class="token" id="tok-transport" title="Transporte IPC entre threads">IPC</button>
+    <button class="token" id="tok-hud" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'F1'}))" title="Alternar HUD de telemetria (F1)">F1 HUD</button>
+    <span class="token" title="Integridade dos subsistemas"><i class="dot" id="led"></i> INTEGRIDADE</span>
+    <span class="clock mono" id="clock">--:--:--</span>
+  </div>
+</header>
+
+<!-- atalhos do desktop -->
+<nav class="icons" id="icons" aria-label="Atalhos do desktop"></nav>
+
+<!-- área do desktop: seleção e clique duplo -->
+<main id="desktop" style="position:fixed;left:118px;right:0;top:34px;bottom:92px" aria-label="Área de trabalho"></main>
+
+<!-- janelas flutuantes e fantasma de snap -->
+<div id="windows" aria-label="Janelas"></div>
+
+<!-- dock e barra de tarefas -->
+<nav class="dock glass" id="dock" aria-label="Dock de aplicativos"></nav>
+<footer class="taskbar" id="taskbar" aria-label="Janelas abertas"></footer>
+
+<!-- notificações -->
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<noscript>
+  <p style="position:fixed;inset:0;display:grid;place-items:center;font:14px system-ui;color:#dceaf8">
+    NÚCLEO OS exige JavaScript: o desktop roda inteiro em Web Workers e WebAssembly.
+  </p>
+</noscript>
+
+<script type="module">
+  import { startOS } from './js/main.js';
+  startOS().catch(error => {
+    console.error(error);
+    document.querySelector('.boot')?.remove();
+    document.body.insertAdjacentHTML('beforeend',
+      '<div class="scrim"><div class="modal glass" style="padding:24px"><h2 style="margin:0 0 8px">Falha ao iniciar o desktop</h2>'
+      + '<p style="color:#9fb3c8;font:12.5px/1.6 ui-monospace">'
+      + String(error && error.message ? error.message : error).replace(/[<>&]/g, '')
+      + '</p><p style="color:#6b7f96;font:12.5px/1.6 ui-monospace">Abra pelo servidor (npm start → http://localhost:3400); '
+      + 'file:// bloqueia WASM, workers e isolamento de origem.</p></div></div>');
+  });
+</script>
+</body>
+</html>

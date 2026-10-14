@@ -133,49 +133,6 @@ A ponte divide solicitações grandes em blocos de até 1 MiB; o leitor aceita a
 Leituras remotas têm timeout, backoff e fallback para subchunks menores. Resposta sem HTTP 206/Content-Range válido é rejeitada para evitar download integral.
 Uma falha irrecuperável exibe erro; nenhum código consegue garantir execução de todo jogo ou impedir falta de memória do processo inteiro.
 
-## SECTOR OS — Virtual PC (documento `/os`)
-
-Além do launcher, este repositório publica um **protótipo de Virtual PC no navegador** em `/os`
-(`npm start` → http://localhost:3000/os). Ele é a implementação de referência dos módulos
-descritos na arquitetura: desktop virtual, terminal com VFS real, gerenciador de arquivos,
-motor próprio de mundo aberto e painel de configurações — tudo em JavaScript sem dependências.
-
-Documentação de projeto (pt-BR):
-
-- [`docs/00-arquitetura.md`](docs/00-arquitetura.md) — arquitetura geral de alto nível, diagrama de fluxo
-  (Mermaid, ASCII e vetorial em [`docs/02-diagrama-fluxo.svg`](docs/02-diagrama-fluxo.svg)), barramento IPC, orçamentos e matriz de resiliência.
-- [`docs/01-design-system.md`](docs/01-design-system.md) — design system conceitual (VÉU/VIDRO/LUZ, tokens, movimento, componentes).
-- [`docs/03-protocolo-ipc.md`](docs/03-protocolo-ipc.md) — codificação do anel, opcodes e regras de não bloqueio.
-
-Como funciona a divisão de threads no protótipo:
-
-```text
-main            SECTOR WM · dock · HUD · configurações · apps
-w-kernel        vCPU Linux (simulada) — SYS_EXEC, tick 120 Hz, estatísticas
-w-engine        ECS SoA, física e tráfego 120 Hz, snapshot em SharedArrayBuffer
-w-io            OPFS via SyncAccessHandle (32 KiB por bloco) ou memória volátil
-```
-
-Regras de honestidade aplicadas no protótipo:
-
-- o HUD imprime `N/D` com o motivo quando o navegador não expõe a métrica (por exemplo, VRAM);
-- VRAM só aparece como soma das alocações declaradas e é rotulada como estimativa;
-- quando `SharedArrayBuffer`/COOP-COEP não estão disponíveis, o transporte cai para `MESSAGE`
-  e o HUD mostra isso — nada de fingir anel;
-- nenhum controle do painel fica habilitado sem efeito real (os inativos trazem o motivo).
-
-Testes automatizados do `/os`:
-
-```sh
-npm run test:os-core   # núcleo sem DOM: IPC, VFS, seqlock, worker real, grafo de imports
-npm run test:os-ui     # interface com DOM real (jsdom): WM, HUD, toasts, boot
-npm run test:os        # navegador (Playwright) — exige `npx playwright install chromium`
-```
-
-`test:os-core` e `test:os-ui` não precisam de navegador nem de rede. `test:os` foi escrito mas
-**não foi executado neste ambiente** (download do Chromium bloqueado), portanto não há resultado
-de navegador a declarar.
-
 ## Internet Archive
 
 O modo remoto original continua disponível: informe identificador do item e caminho de uma ISO pública não compactada.
@@ -231,6 +188,3 @@ Use `TEST_URL` para outro endereço de servidor. A ISO inválida é gerada em me
 - `scripts/build-catalog.mjs`: gerador do catálogo a partir do banco OPL.
 - `tests/smoke.cjs`: teste de navegador (WASM real, disco inválido, teclado).
 - `tests/catalog.cjs`: testes do catálogo, sem rede nem navegador.
-- `os/`: protótipo do Virtual PC (desktop, terminal, arquivos, motor, configurações, workers).
-- `docs/00-arquitetura.md` e `docs/01-design-system.md`: arquitetura e design system conceituais.
-- `tests/os-core.mjs` / `tests/os-ui.mjs` / `tests/os.mjs`: suítes do `/os` (núcleo, DOM via jsdom, navegador).

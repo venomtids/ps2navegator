@@ -1,6 +1,0 @@
-{
-  "name": "sector-os",
-  "private": true,
-  "type": "module",
-  "description": "SECTOR OS — desktop, workers e design system (ESM nativo, sem bundler)"
-}

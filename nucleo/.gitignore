@@ -1,0 +1,6 @@
+node_modules/
+
+# Artefatos de teste local (capturas, relatórios)
+tests/*.png
+tests/last-run.txt
+.cache/

@@ -10,9 +10,6 @@
     "start": "node server.js",
     "catalog:build": "node scripts/build-catalog.mjs",
     "test:catalog": "node tests/catalog.cjs",
-    "test:os-core": "node tests/os-core.mjs",
-    "test:os-ui": "node tests/os-ui.mjs",
-    "test:os": "node tests/os.mjs",
     "test:smoke": "node tests/smoke.cjs",
     "test:installer": "node tests/installer.cjs",
     "test:installer-ui": "node tests/installer-ui.cjs"
@@ -22,7 +19,6 @@
     "express": "^5.1.0"
   },
   "devDependencies": {
-    "jsdom": "^30.1.2",
     "playwright": "^1.63.0"
   }
 }

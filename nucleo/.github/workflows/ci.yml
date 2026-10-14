@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    paths: ['nucleo/**']
+  pull_request:
+    paths: ['nucleo/**']
+
+defaults:
+  run:
+    working-directory: nucleo
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: nucleo/package-lock.json
+      - run: npm ci
+      - name: Sintaxe (falha cedo em erro de parse)
+        run: |
+          node --check server.js
+          for f in $(find js workers -name '*.js'); do node --check "$f"; done
+          for f in tests/*.mjs; do node --check "$f"; done
+      - name: Núcleo (IPC, VFS, worker real, grafo de imports)
+        run: npm run test:core
+      - name: Interface (DOM real via jsdom)
+        run: npm run test:ui

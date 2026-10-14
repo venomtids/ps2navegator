@@ -1,0 +1,17 @@
+{
+  "name": "nucleo-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NÚCLEO OS — Virtual PC de alta performance no navegador: desktop com window manager, terminal sobre VFS real (OPFS), motor de mundo aberto próprio e telemetria. Sem dependências de runtime.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node tests/core.mjs && node tests/ui.mjs",
+    "test:core": "node tests/core.mjs",
+    "test:ui": "node tests/ui.mjs",
+    "test:browser": "node tests/browser.mjs"
+  },
+  "devDependencies": { "jsdom": "^30.1.2" }
+}
