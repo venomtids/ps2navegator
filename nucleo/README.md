@@ -163,6 +163,81 @@ node tools/render-site.mjs --local                      # página inicial do sis
 O utilitário mostra cada etapa medida (busca, folhas de estilo, layout, pintura), imprime as
 notas e desenha um **retrato em texto** do que seria pintado no canvas.
 
+## A cidade (motor 3D) — e por que ela aparecia preta
+
+A janela **Cidade — motor 3D** desenha um mundo aberto procedural alimentado pelo estado real
+do worker `w-engine`: quarteirões determinísticos pela semente `0x51c7` mais o tráfego que o
+motor simula (mesma física, mesma IA), com câmera livre, escala de render dinâmica (DRS) e
+teto de FPS.
+
+```text
+snapshot do w-engine (x, z, vx, vz, velocidade, tipo)
+   → buffer de instâncias pré-alocado (8 192 × 8 floats, zero alocação por quadro)
+   → projeção (js/core/mat4.js) → câmera livre (arrastar + WASD + Shift)
+   → WebGL2: 2 chamadas de desenho (céu com gradiente, chão procedural, cidade/tráfego instanciados)
+   │  ou, sem WebGL2, contexto perdido ou shader reprovado:
+   └→ software 2D: mesma cena, mesma matriz, clipe de plano próximo, pintor longe→perto,
+      teto de 520 objetos declarado na linha de estado
+```
+
+### As causas da tela preta (todas confirmadas no histórico do git)
+
+O relato ("a cidade fica em tela preta") tinha três causas, e vale registrar cada uma porque
+são exatamente o tipo de falha silenciosa que este projeto não quer repetir:
+
+| # | Defeito | Por que produzia tela preta |
+|---|---|---|
+| A | `makeCube` montava **16 vértices** (4 faces) e devolvia `count: 24`; o desenho pedia `drawArraysInstanced(TRIANGLES, 0, 24, n)` | no WebGL real, atributo habilitado além do fim do buffer = `INVALID_OPERATION` e a **chamada inteira é descartada**: nenhum prédio chegava à tela |
+| B | as 4 faces estavam em sentido **horário** vistas de fora, com `CULL_FACE` ligado | mesmo corrigindo A, o culling descartaria todas as faces (não havia face de topo nem base tampouco) |
+| C | a câmera ficava **dentro** do quarteirão (`y = 14`, `z = 46`, `pitch = −0.28`) e a cidade não seguia a grade viária do motor (vias de 40 m) | o que sobrava na tela estava longe, coberto pela névoa, quase na cor do céu — sem cidade legível e com tráfego atravessando prédio |
+
+O que restava depois de A + B era o chão, cuja cor base era quase idêntica ao `clearColor`:
+leitura humana, "tela preta".
+
+### O que mudou
+
+| Correção | Onde | Prova |
+|---|---|---|
+| Cubo com 6 faces / 24 vértices, anti-horário vistas de fora, com topo e base | `makeCubeData()` | `tests/engine.mjs` recalcula o produto vetorial de cada face **e** a área em NDC com a câmera fora do cubo |
+| Contagem vem da geometria, nunca de constante escrita à mão | `makeCubeData()` | `count === 24` e `indices.length === 36` no teste |
+| WebGL falso nos testes aplica a **mesma validação** do WebGL real (atributo fora de faixa → erro e chamada descartada), com controle negativo | `tests/engine.mjs` | o teste falha se a contagem pedida passar do buffer |
+| Erro de GL deixa de ser silencioso | `gl.getError()` a cada quadro | erro → laço para, faixa âmbar na janela com o código, toast e nota no HUD |
+| Segundo caminho de desenho (software) quando não há WebGL2 | `desenharSoftware()` | teste monta a janela sem `webgl2` e confere polígonos preenchidos, céu pintado e grade |
+| Sem WebGL2 **e** sem 2D, a janela fala | `erroFatal` + faixa âmbar | teste confere `SEM DESENHO` e o motivo no texto |
+| Clipe de plano próximo de verdade (polígonos e linhas) | `recortarProximo()`, `linhaEmTela()` | prédio vizinho agora aparece recortado, em vez de desaparecer |
+| Teto do pintor corta os **distantes**, não os próximos | `selecionarProximos()` (pura, exportada) | teste com 6 volumes verifica quem entra, em que ordem e quem sobra |
+| Cidade alinhada às vias do motor (quarteirões de 40 m, centros em múltiplos de 20) | `buildCity()` + `VIA` | teste percorre todos os volumes e falha se algum invadir o eixo de uma via |
+| Câmera inicial na avenida, na altura de um veículo | `CAMERA_INICIAL` | teste confere eixo de via, altura e direção de visão |
+
+### Ver o resultado sem abrir o navegador
+
+`tools/render-cidade.mjs` renderiza **um quadro real** fora do navegador: hospeda o
+`workers/engine.worker.js` de produção numa thread do Node (mesmo protocolo, mesmo passo fixo,
+transporte `MESSAGE`), monta o `js/apps/game.js` inteiro e rasteriza a cena em PNG com
+autoverificação (quantos pixels fora do céu, tom dominante, maiores faces e um mapa de
+caracteres no terminal). Se o desenho sair vazio, o próprio relatório avisa que a suspeita é a
+ferramenta — antes da cena.
+
+```bash
+cd nucleo
+node tools/render-cidade.mjs --saida quadro.png            # 960×540, 256 veículos do motor
+node tools/render-cidade.mjs --cam 20,5,210,3.14159,-0.02  # outro enquadramento
+node tools/render-cidade.mjs --debug                       # mostra as maiores faces por cor
+```
+
+O quadro versionado em `docs/quadro-cidade.png` saiu deste comando, com 256 entidades lidas do
+motor: skyline com volume, céu em gradiente, grade viária e os veículos reais (táxi, civil,
+policial). **O que esse caminho não exercita é o WebGL2** — não há GPU no Node —, então esta
+evidência prova a cena, a matriz, a geometria e o tráfego, não o shader.
+
+### O que a cena **não** é (ainda)
+
+Sem modelo de terreno, sem `.glb`/glTF, sem animação esquelética, sem sombras em cascata, sem
+LOD por distância, sem oclusão, sem física na GPU. Iluminação é uma luz direcional com banda de
+difusão, névoa linear e acento no teto dos prédios; o modo software não tem z-buffer (por isso o
+teto de objetos e a ordem do pintor, ambos declarados na linha de estado). Pessoas, missões e
+semáforos seguem como `[R]` no roadmap — não são simulados hoje, então não são mostrados.
+
 ## O que muda em preview embutido (iframe de terceiros)
 
 Um iframe não herda isolamento de origem: sem `crossOriginIsolated`, o navegador **não expõe**
@@ -176,7 +251,7 @@ nunca silenciosa:
 | `SharedArrayBuffer` + `Atomics.waitAsync` | sim | não |
 | Estado do mundo (tráfego) | buffer compartilhado + seqlock | ping-pong por `postMessage` a ~30 Hz, sem alocação |
 | OPFS (disco virtual) | persistente | funciona se o host permitir storage; senão, memória volátil declarada |
-| WebGL2 (cena 3D) | sim | sim, se o host permitir GPU no iframe |
+| WebGL2 (cena 3D) | sim | sim, se o host permitir GPU no iframe; **se não permitir, o motor da cidade cai para o modo software (canvas 2D) e diz isso na própria janela** |
 | Transporte exibido no HUD | `RING/SAB` | `MESSAGE` + aviso na interface |
 
 Três falhas reais foram encontradas e corrigidas justamente testando este caminho — todas derrubavam
@@ -213,7 +288,7 @@ Regra: nada é simulado para parecer que funciona. O que não existe aparece com
 | Navegador (motor próprio) | funcional | busca pelo proxy com política anti-SSRF, CSS externo, layout de blocos/inline, imagens, pintura em canvas, links clicáveis por hit-test, zoom, rolagem e modo texto; declara em notas tudo o que não renderiza |
 | Motor de CSS e layout | funcional | cascata com especificidade/herança/shorthands/`@media`, caixas com margem-padding-borda, fluxo inline com medição real e quebra por palavra (`js/core/css.js`, `js/core/layout.js`) |
 | Instalador de arquivos | funcional | arrastar-e-soltar, paleta, janela Arquivos e `install` no terminal; sanitização de nome, colisão sem sobrescrita, cota checada antes da escrita |
-| Motor de mundo aberto | funcional | ECS SoA com passo fixo de 120 Hz, física de seguimento de faixa, IA de tráfego, snapshot binário, cena 3D em WebGL2 |
+| Motor de mundo aberto | funcional | ECS SoA com passo fixo de 120 Hz, física de seguimento de faixa, IA de tráfego, snapshot binário; a cena 3D desenha em WebGL2 instanciado e, sem WebGL2, no mesmo dia em modo software |
 | Telemetria (HUD) | funcional | FPS, P50/P95 de quadro, custo por worker, MB/s de I/O, entidades, ticks, transporte IPC |
 | Kernel Linux (Debian) | **emulado, fase inicial** | vCPU simulada com `SYS_EXEC`/`tick`; o terminal é o do NÚCLEO OS, **não** um Linux real |
 | Painel de configurações | funcional | perfis, resolução, teto de FPS, shaders, DRS, gestão do disco OPFS; controles sem efeito ficam desabilitados com o motivo |
@@ -244,7 +319,7 @@ matriz de falha → resposta e roadmap:
 npm test               # núcleo + interface, sem navegador e sem rede
 npm run test:core      # IPC (bytes, wrap, drops), VFS real sobre worker_threads, seqlock, grafo de imports
 npm run test:ui        # DOM real via jsdom: boot, window manager, HUD, toasts, boot degradado
-npm run test:engine    # motor do navegador: cascata, layout, pintura (contexto que grava), pipeline
+npm run test:engine    # motor de página (cascata, layout, pintura) + motor de mundo (geometria/CULL_FACE, vias, pintor, WebGL2 falso)
 npm run test:browser   # Playwright/Chromium — exige `npx playwright install chromium`
 ```
 
@@ -274,12 +349,13 @@ js/core/            ipc · link · wire · snapshot · vfs · vfs-local · impor
 server/             fetch-route.js (rota /api/fetch do navegador do sistema)
 js/apps/gfx/        paint.js (canvas + hit-test) · images.js (bytes → bitmap)
 js/core/            + css.js (cascata) · layout.js (caixas) · srcpage.js (HTML+CSS+imagens)
-tools/              render-site.mjs (roda o motor contra uma URL real, com retrato em texto)
 js/ui/              hud · toast · icons
 js/apps/            terminal · browser · files · game · settings
 js/boot.js          boot + sondagem real de capacidades do navegador
 js/main.js          orquestração: workers, barramentos, VFS, WM, HUD, registro de apps
 workers/            kernel.worker · engine.worker · io.worker
+tools/              render-site.mjs (motor de página contra uma URL real) · render-cidade.mjs
+                    (um quadro real do motor de mundo em PNG) · engine-worker-host.mjs
 tests/              core.mjs · ui.mjs · browser.mjs · worker-fixture.mjs · io-worker-host.mjs
-docs/               arquitetura · design system · protocolo IPC · diagrama
+docs/               arquitetura · design system · protocolo IPC · diagrama · quadro-cidade.png (evidência)
 ```

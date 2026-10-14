@@ -212,7 +212,13 @@ export async function startOS() {
     metrics.gameScale = m.scale;
     metrics.gameRenderMs = m.renderMs;
     metrics.gameInstances = m.instances;
-    void gameApp;
+    // O renderizador REAL da janela Cidade (não a capacidade do navegador) precisa
+    // aparecer na telemetria: se ele caiu para o modo software, o HUD diz por quê em
+    // vez de deixar a diferença invisível (docs/00 §8.4).
+    metrics.gameBackend = m.backend;
+    metrics.gameNote = m.erro
+      ? `Cidade: desenho interrompido — ${m.erro}`
+      : (m.backend === 'webgl2' ? '' : `Cidade: render em software (canvas 2D) — ${m.motivo || 'WebGL2 indisponível'}`);
   }
   let gameScale = settings.renderScale;
 

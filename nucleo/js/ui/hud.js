@@ -133,7 +133,7 @@ export function createHUD({ host, onClose, hudThresholds = { warn: 0.7, crit: 0.
       if (transport.textContent !== m.transport) transport.textContent = m.transport;
       if (backend.textContent !== m.backend) backend.textContent = m.backend;
       queue.textContent = Number.isFinite(m.queue) ? `${fmtInt(m.queue)}` : 'N/D';
-      note.textContent = `VRAM: N/D — não é exposta pelo navegador. ${m.heapNote || ''} Amostragem 2 Hz; P95 evita esconder travamento.`;
+      note.textContent = `VRAM: N/D — não é exposta pelo navegador. ${m.heapNote || ''}${m.gameNote ? ` ${m.gameNote}` : ''} Amostragem 2 Hz; P95 evita esconder travamento.`;
       if (visible) drawSpark();
     },
     /** Estatística honesta de cota/uso. */

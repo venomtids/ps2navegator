@@ -213,6 +213,44 @@ destino à barra de status sem tooltip flutuante — informação onde o olho j�
 com a classe `.busy` (acento) em vez de exibir uma animação de carregamento que não corresponde a
 progresso real. Sem progresso medido, sem indicador de progresso.
 
+### 6.14 Cidade (motor 3D)
+
+A janela é um viewport, não um painel: o cromo é o mínimo possível e o que sobra é
+informação de estado. Anatomia, de cima para baixo:
+
+| Faixa | Tratamento | Conteúdo |
+|---|---|---|
+| Viewport (canvas) | fundo `#01040a` (o mesmo `clearColor` da cena), sem borda interna, `outline: none` | céu em gradiente, chão com grade neon nas vias, cidade com pódio/corpo/telhado, tráfego em 3 tipos de veículo |
+| Linha de estado | `--mono` 10,5 px, `--ink-3`, altura 26 px, padding 6/10 | `<BACKEND> · N instâncias · N desenhos · X ms render · N fps · escala Q× · DRS ativo · tráfego N (w-engine) · N volumes acima do teto` |
+| Faixa de aviso | `#ffcf5a` (`--warn`), mesma tipografia, `display:none` quando não há o que dizer | o motivo exato de o renderizador ter mudado de degrau |
+
+Regras de honestidade visual da janela:
+
+1. **O backend é dito, não presumido.** `WEBGL2`, `SOFTWARE 2D` ou `SEM DESENHO` abrem a linha de
+   estado — a mesma palavra que o HUD repete na nota de VRAM (`Cidade: render em software …`).
+2. **Faixa âmbar em vez de tela preta.** Se o degrau caiu, a faixa explica em uma frase; o motivo
+   nunca fica escondido atrás de um canvas escuro.
+3. **O que não coube é declarado.** Quando o teto de objetos do modo software corta volumes, a
+   linha de estado mostra quantos. Um quadro incompleto que se apresenta como completo é mentira;
+   um quadro incompleto que diz o que faltou é instrumentação.
+4. **Falha de quadro congela com legenda.** Ao primeiro erro de GL o laço para, a linha de estado
+   vira `laço interrompido` e a faixa carrega o motivo — em vez de congelar o último quadro como
+   se estivesse tudo bem.
+5. **Tráfego é do motor, não decorativo.** O número entre parênteses vem do `w-engine`
+   (snapshot lock-free). Sem worker, o motor é declarado indisponível e **nenhum veículo é
+   inventado** para preencher a tela.
+6. **Nada de VRAM inventada.** A janela não mostra "VRAM usada": a API não expõe. O que ela
+   mostra (instâncias, desenhos, escala, ms) é medido no laço.
+
+Interação: arrastar gira a câmera (`yaw`/`pitch`), `W A S D` deslocam, `Shift` acelera,
+`←`/`→` giram; o DRS reduz a escala de render quando o P95 do quadro passa de 18 ms e devolve
+devagar; o teto de FPS do painel de configurações (§6.8) é obedecido por temporização, não por
+descarte de quadro — o custo mostrado é o custo real.
+
+Composição inicial: câmera na **via** (eixo `x = 20`, o mesmo centro de faixa do motor), a 5 m
+de altura, olhando para o centro da cidade a 210 m — enquadramento de rua, não de drone. O
+contrato com o motor é visual: se a cidade não seguir a grade viária, o tráfego cruza prédio.
+
 ## 7. Micro-interações
 
 | Gesto | Feedback |
@@ -298,6 +336,13 @@ arrastar/redimensionar com área ampliada.
 | Navegador: pintura e hit-test | `js/apps/gfx/paint.js` |
 | Navegador: imagens | `js/apps/gfx/images.js` |
 | Navegador: janela e interação | `js/apps/browser.js` |
+| Cidade: geometria e cena | `js/apps/game.js` (`makeCubeData`, `buildCity`) |
+| Cidade: caminho WebGL2 (shaders, instância) | `js/apps/game.js` (`iniciarGl`, `desenharGl`) |
+| Cidade: caminho software 2D | `js/apps/game.js` (`desenharSoftware`) |
+| Cidade: seleção do pintor (teto por proximidade) | `js/apps/game.js` (`selecionarProximos`) |
+| Cidade: clipe de plano próximo | `js/apps/game.js` (`recortarProximo`, `linhaEmTela`) |
+| Cidade: telemetria do renderizador | `js/main.js` (`reportGame`) → `js/ui/hud.js` |
+| Cidade: quadro de evidência fora do navegador | `tools/render-cidade.mjs` + `tools/engine-worker-host.mjs` |
 
 O protótipo é a **prova executável** deste documento: os valores citados aqui são os
 valores em `tokens.css`, e as regras de §2.1 (teto de área, 3 superfícies, fallback)

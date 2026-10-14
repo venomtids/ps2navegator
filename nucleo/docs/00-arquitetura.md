@@ -457,6 +457,49 @@ Diferenças obrigatórias a declarar na UI: sem compute (culling no worker), sem
 `RGBA8` com dithering), TAA substituído por FXAA. O HUD mostra `BACKEND: WEBGL2` e
 o perfil máximo é rebaixado para `balanced`.
 
+### 8.4 Escada de fallback implementada — janela "Cidade" (protótipo)
+
+A janela "Cidade — motor 3D" é o primeiro pedaço verificável do pipeline do §8.1 e existe para
+provar uma coisa antes de qualquer `compute`: **um quadro ruim tem que ser visível**. A escada
+tem três degraus, e o degrau em uso é dito na janela e repetido no HUD.
+
+| Degrau | Quando entra | O que muda | Como o usuário sabe |
+|---|---|---|---|
+| 1. WebGL2 instanciado | padrão (`getContext('webgl2')` + shaders compilam + `getError() === NO_ERROR`) | 3 chamadas de desenho (céu, chão procedural, cidade+tráfego instanciados), DRS real, teto de FPS real | linha de estado: `WEBGL2 · …` |
+| 2. Software (canvas 2D) | sem WebGL2, contexto perdido ou shader reprovado | mesma cena, mesma matriz (`js/core/mat4.js`), clipe de plano próximo, pintor longe→perto, teto de 520 objetos | faixa âmbar com o motivo + nota no HUD + linha de estado `SOFTWARE 2D` |
+| 3. Sem desenho | sem WebGL2 **e** sem 2D | nenhuma tela preta: o laço não roda e o motivo ocupa a faixa | `SEM DESENHO · desenho interrompido: <motivo>` |
+
+Invariantes do subsistema (verificados em `tests/engine.mjs`):
+
+1. **Sentido de face é contrato, não estilo.** `makeCubeData()` devolve 6 faces com 24 vértices
+   em sentido anti-horário vistas de fora (topo e base incluídos); o teste recalcula o produto
+   vetorial de cada quad e a área em NDC com a câmera fora do cubo.
+2. **Contagem honesta.** O número de vértices do desenho vem da geometria
+   (`vertices.length / 6`), nunca de constante escrita à mão. No WebGL real, pedir mais vértices
+   do que o buffer tem é `INVALID_OPERATION` e a chamada instanciada inteira é descartada em
+   silêncio — era uma das causas da tela preta. O teste usa um WebGL falso que aplica a mesma
+   validação, com controle negativo.
+3. **A cidade não invade a via.** Os quarteirões nascem sobre a grade viária do motor
+   (`VIA` = 40 m, centros de faixa em múltiplos ímpares de 20, alinhados a `LANE_GAP` do
+   `w-engine`). O teste percorre todos os volumes e falha se algum cruzar o eixo de uma via.
+4. **Clipe de plano próximo em espaço de clipe.** Um prédio vizinho tem vértices com `w ≤ 0`;
+   descartar a face inteira (primeira versão) apagava justamente o que está perto. Hoje há
+   Sutherland–Hodgman contra `w = W_MIN` para polígonos e recorte de segmento para as linhas.
+5. **O teto do pintor corta os distantes.** `selecionarProximos()` (pura, exportada) filtra o
+   que está além do alcance da névoa, escolhe os mais próximos e devolve a ordem longe→perto.
+   Quem sobra é declarado na linha de estado (`N volumes acima do teto`), nunca escondido.
+6. **Zero alocação por quadro.** `Float32Array` de instâncias pré-alocado (8 192 × 8 floats,
+   `[x, z, altura, largura, r, g, b, a]`), `vp`/`clip` reutilizados, uniformes memoizados,
+   nenhuma criação de vetor dentro do laço.
+7. **Erro de quadro não é silencioso.** `gl.getError()` a cada quadro; exceção → laço para,
+   faixa âmbar com o motivo, toast e nota no HUD.
+
+**Verificação fora do navegador.** `tools/render-cidade.mjs` renderiza um quadro real (PNG) sem
+navegador: hospeda o `workers/engine.worker.js` de produção numa thread do Node, monta o
+`js/apps/game.js` inteiro e rasteriza com autoverificação (pixels fora do céu, tom dominante,
+maiores faces, mapa de caracteres). Isso valida cena, matriz, geometria, clipe, pintor e o
+tráfego real — e **não** valida o shader WebGL2, que continua exigindo um navegador com GPU.
+
 ---
 
 ## 9. Armazenamento — NVMe virtual em OPFS

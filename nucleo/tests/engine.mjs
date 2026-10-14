@@ -460,6 +460,267 @@ await test('nome de arquivo e modo de degradação do app (sem canvas) não queb
   assert.equal(nomeDeArquivo('nao-e-url'), 'pagina.html');
 });
 
+// ------------------------------------------------------- cidade (motor 3D) ---
+section('Cidade: geometria (CULL_FACE) e o caminho software quando não há WebGL');
+
+const { makeCubeData, buildCity, createGame, selecionarProximos, TETO_SOFTWARE, CEU_RGB, NEVOA, CAMERA_INICIAL, direcaoVisao } = await import('../js/apps/game.js');
+const { perspective, lookAt, multiply } = await import('../js/core/mat4.js');
+
+await test('cada face do cubo é anti-horária vista de fora — o defeito que apagava a cidade', () => {
+  const cubo = makeCubeData();
+  assert.equal(cubo.faces.length, 6);
+  assert.equal(cubo.count, 24, 'seis faces de quatro vértices');
+  assert.equal(cubo.indices.length, 36, 'dois triângulos por face');
+  const proj = new Float32Array(16), view = new Float32Array(16), vp = new Float32Array(16);
+  const aplicar = (m, v) => [0, 1, 2, 3].map(i => m[i] * v[0] + m[4 + i] * v[1] + m[8 + i] * v[2] + m[12 + i]);
+  const areaSinal = (a, b, c) => ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2;
+  const erros = [];
+  cubo.faces.forEach((face, f) => {
+    const n = face.normal;
+    // normal derivada do sentido do quad: (v1-v0) × (v2-v0) precisa apontar para fora
+    const [v0, v1, v2] = face.quad;
+    const u = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+    const w = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+    const cruz = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+    const concordancia = cruz[0] * n[0] + cruz[1] * n[1] + cruz[2] * n[2];
+    if (concordancia <= 0) erros.push(`face ${f} (${n}): normal contradiz o sentido do quad (${concordancia})`);
+
+    // sentido em coordenadas de janela com a câmera FORA, olhando para a face
+    const olho = [n[0] * 6, 0.5 + n[1] * 6, n[2] * 6];
+    const up = Math.abs(n[1]) > 0.5 ? [0, 0, 1] : [0, 1, 0];
+    perspective(proj, 1.05, 1.6, 0.1, 100);
+    lookAt(view, olho, [0, 0.5, 0], up);
+    multiply(vp, proj, view);
+    const ndc = p => { const c = aplicar(vp, [p[0], p[1], p[2], 1]); return [c[0] / c[3], c[1] / c[3]]; };
+    const area = areaSinal(ndc(v0), ndc(v1), ndc(v2));
+    if (!(area > 0)) erros.push(`face ${f} (${n}): área em NDC = ${area.toFixed(4)} (CW) — seria descartada por CULL_FACE`);
+  });
+  assert.deepEqual(erros, [], `faces com defeito: ${erros.join(' | ')}`);
+});
+
+await test('o teto do pintor corta os DISTANTES, não os prédios que o usuário vê', () => {
+  // 6 volumes em linha, do mais próximo ao mais distante da câmera em (0,0).
+  const dados = new Float32Array(6 * 8);
+  const distancias = [10, 20, 30, 40, 50, 600];
+  distancias.forEach((d, i) => {
+    dados[i * 8] = 0; dados[i * 8 + 1] = d;
+    dados[i * 8 + 2] = 10; dados[i * 8 + 3] = 5;
+    dados[i * 8 + 4] = 0.2; dados[i * 8 + 5] = 0.3; dados[i * 8 + 6] = 0.4; dados[i * 8 + 7] = 1;
+  });
+
+  const comTeto = selecionarProximos(dados, 6, 0, 0, 3);
+  assert.equal(comTeto.indices.length, 3, 'o teto manda');
+  assert.deepEqual(comTeto.indices, [2, 1, 0], 'desenha os 3 mais próximos, de trás para frente (longe → perto)');
+  assert.equal(comTeto.descartados, 3, 'e declara o que ficou de fora');
+
+  const semTeto = selecionarProximos(dados, 6, 0, 0, 99);
+  assert.deepEqual(semTeto.indices, [5, 4, 3, 2, 1, 0], 'sem teto, tudo entra em ordem de pintor');
+  // 600 m está além do alcance declarado da névoa: não entra nem sem teto apertado
+  const curto = selecionarProximos(dados, 6, 0, 0, 99, 100);
+  assert.deepEqual(curto.indices, [4, 3, 2, 1, 0], 'objeto além do alcance da névoa nem entra como candidato');
+  assert.equal(curto.descartados, 0, 'e isso não é "descartado por teto": ninguém foi cortado');
+
+  // O contrato é com a distância, não com o índice: com a câmera longe, quem entra muda.
+  // Em z=560, os dois mais próximos são z=600 (a 40 m) e z=50 (a 510 m) — desenhados do
+  // mais distante para o mais próximo, porque quem pinta por último fica na frente.
+  const longe = selecionarProximos(dados, 6, 0, 560, 2);
+  assert.deepEqual(longe.indices, [4, 5], 'ordem de pintor: z=50 primeiro, z=600 depois');
+});
+
+await test('câmera inicial é uma avenida: dentro do mundo, baixa e olhando para o centro', () => {
+  const [dx, dy, dz] = direcaoVisao(CAMERA_INICIAL.yaw, CAMERA_INICIAL.pitch);
+  assert.ok(CAMERA_INICIAL.y > 1 && CAMERA_INICIAL.y < 12, `câmera na altura de um veículo, não de um drone: y=${CAMERA_INICIAL.y}`);
+  assert.ok(dy < 0.05, 'olhando para a frente, não para o chão nem para o céu');
+  assert.ok(dz < -0.9, 'olhando para o centro da cidade (-Z)');
+  // A avenida é o eixo x = 20 (centro de faixa do w-engine: múltiplos ímpares de 20).
+  assert.equal(CAMERA_INICIAL.x % 40, 20, 'a câmera fica no eixo de uma via, não dentro de um quarteirão');
+  assert.ok(CAMERA_INICIAL.z > 0 && CAMERA_INICIAL.z < 320, 'a uma distância em que a cidade caiba no quadro');
+  assert.ok(NEVOA.inicio < NEVOA.fim && NEVOA.piso > 0 && NEVOA.piso < 1, 'névoa com início, fim e piso de visibilidade declarados');
+});
+
+await test('cidade procedural é determinística, cabe no mundo e não invade as vias', () => {
+  const a = buildCity(0x51c7, 250), b = buildCity(0x51c7, 250), c = buildCity(0x1234, 250);
+  assert.deepEqual([...a.data.slice(0, 64)], [...b.data.slice(0, 64)], 'mesma semente, mesma cidade');
+  assert.notDeepEqual([...a.data.slice(0, 64)], [...c.data.slice(0, 64)], 'semente diferente, cidade diferente');
+  assert.equal(a.data.length % 8, 0, 'cada prédio ocupa 8 campos: x, z, h, w, r, g, b, a');
+  const volumes = a.data.length / 8;
+  assert.ok(volumes > 500, `cidade pequena demais: ${volumes} volumes`);
+  assert.ok(volumes < 4000, `cidade grande demais para o protótipo: ${volumes} volumes`);
+
+  // Contrato com o motor: o w-engine dirige em vias de 40 m com centros em múltiplos
+  // ÍMPARES de 20 (LANE_GAP=40, duas faixas). Nenhum prédio pode estar na rua.
+  const naVia = [];
+  for (let i = 0; i < volumes; i++) {
+    const x = a.data[i * 8], z = a.data[i * 8 + 1], lado = a.data[i * 8 + 3];
+    const distVia = v => Math.abs(((v % 40) + 40) % 40 - 20);      // distância ao eixo da via
+    const folga = Math.min(distVia(x), distVia(z)) - lado * 0.75;  // o pódio é 1,28× mais largo
+    if (folga < 0) naVia.push(`(${x.toFixed(1)},${z.toFixed(1)}) lado ${lado.toFixed(1)}`);
+  }
+  assert.deepEqual(naVia.slice(0, 5), [], `volume sobre a via do motor: ${naVia.length} casos`);
+  // e o mundo tem que caber: nada além do meio-lado declarado
+  let fora = 0;
+  for (let i = 0; i < volumes; i++) {
+    if (Math.abs(a.data[i * 8]) > a.half + 1 || Math.abs(a.data[i * 8 + 1]) > a.half + 1) fora++;
+  }
+  assert.equal(fora, 0, `${fora} volumes fora do meio-lado ${a.half}`);
+});
+
+/** Contexto 2D que grava chamadas — mesmo princípio do resto da suíte. */
+function ctx2dGravador() {
+  const chamadas = [];
+  const estado = { fillStyle: '', strokeStyle: '', lineWidth: 1 };
+  return {
+    chamadas,
+    canvas: { width: 640, height: 400 },
+    get fillStyle() { return estado.fillStyle; }, set fillStyle(v) { estado.fillStyle = v; },
+    get strokeStyle() { return estado.strokeStyle; }, set strokeStyle(v) { estado.strokeStyle = v; },
+    set lineWidth(v) { estado.lineWidth = v; }, get lineWidth() { return estado.lineWidth; },
+    setTransform() {}, save() {}, restore() {},
+    fillRect(x, y, w, h) { chamadas.push(['fillRect', x, y, w, h, estado.fillStyle]); },
+    beginPath() { chamadas.push(['beginPath']); },
+    moveTo(x, y) { chamadas.push(['moveTo', Math.round(x), Math.round(y)]); },
+    lineTo(x, y) { chamadas.push(['lineTo', Math.round(x), Math.round(y)]); },
+    closePath() { chamadas.push(['closePath']); },
+    fill() { chamadas.push(['fill', estado.fillStyle]); },
+    stroke() { chamadas.push(['stroke', estado.strokeStyle]); }
+  };
+}
+
+function montarCidade({ webgl2 = null, ctx2d = null } = {}) {
+  const canvas = dom.window.document.createElement('canvas');
+  canvas.getBoundingClientRect = () => ({ width: 640, height: 400, left: 0, top: 0, right: 640, bottom: 400 });
+  canvas.getContext = tipo => (tipo === 'webgl2' ? webgl2 : (tipo === '2d' ? ctx2d : null));
+  const criados = [];
+  const settings = { renderScale: 1, shadows: false, drs: false, fpsCap: 30, entities: 64 };
+  const app = createGame({
+    canvas, settings,
+    engine: { available: true, scratch: new Float32Array(8 * 64).fill(0), readEntities: () => 4, entityCount: 4, snapshotMode: 'post' },
+    os: { reportGame: m => criados.push(m) },
+    toast: { err: () => {}, ok: () => {}, warn: () => {}, push: () => {} }
+  });
+  return { app, canvas, criados };
+}
+
+await test('sem WebGL2 a cidade é desenhada em software — nunca janela preta vazia', async () => {
+  const ctx2d = ctx2dGravador();
+  const { app, criados } = montarCidade({ webgl2: null, ctx2d });
+  try {
+    assert.equal(app.backend, 'software', 'sem WebGL2, o backend declarado é software');
+    assert.match(app.backendMotivo, /WebGL2 indisponível/);
+    assert.equal(app.erro, '', 'modo software não é erro fatal');
+    await sleep(80);
+
+    const fills = ctx2d.chamadas.filter(c => c[0] === 'fill');
+    assert.ok(fills.length > 0, 'o desenho em software precisa preencher polígonos (a cidade)');
+    assert.ok(ctx2d.chamadas.some(c => c[0] === 'fillRect' && c[5].startsWith('rgb(2,4,7')), `céu pintado com a cor declarada: ${JSON.stringify(CEU_RGB)}`);
+    assert.ok(ctx2d.chamadas.some(c => c[0] === 'stroke'), 'a grade do chão precisa ser traçada');
+    const stats = app.stats;
+    assert.equal(app.erro, '', 'o laço não pode ter parado');
+    assert.ok(stats.instances > 500, `a cidade tem apenas ${stats.instances} volumes`);
+    assert.ok(stats.drawCalls > 10, `desenhos por quadro: ${stats.drawCalls}`);
+    // o modo é declarado na interface e no relatório de telemetria
+    assert.match(app.el.textContent, /SOFTWARE 2D/);
+    assert.match(app.el.textContent, /modo software \(canvas 2D\): WebGL2 indisponível/);
+    assert.ok(criados.length > 0, 'a telemetria recebe o estado do renderizador');
+    assert.equal(criados.at(-1).backend, 'software');
+  } finally { app.onClose(); }
+});
+
+await test('sem WebGL2 e sem 2D a janela diz exatamente o que faltou (nada de tela preta muda)', () => {
+  const { app } = montarCidade({ webgl2: null, ctx2d: null });
+  try {
+    assert.equal(app.backend, 'software');
+    assert.match(app.erro, /sem WebGL2 .* e sem canvas 2D/);
+    assert.match(app.el.textContent, /SEM DESENHO/);
+    assert.match(app.el.textContent, /sem canvas 2D/);
+  } finally { app.onClose(); }
+});
+
+/** Contexto WebGL2 falso que aplica a MESMA validação do WebGL real:
+ *  atributo habilitado fora da faixa do buffer → INVALID_OPERATION e chamada descartada.
+ *  É assim que o defeito original (`count: 24` com 16 vértices) é pego sem GPU. */
+function glFalso() {
+  const bufDados = new Map();          // buffer → tamanho em bytes
+  const atributos = new Map();         // índice → { buf, stride, size }
+  const ativos = new Set();
+  const chamadas = { instanciadas: [], simples: 0 };
+  const erros = [];
+  let ligado = null;
+  let id = 0;
+  const novo = tipo => ({ tipo, id: ++id });
+  return {
+    // constantes
+    ARRAY_BUFFER: 0x8892, STATIC_DRAW: 0x88E4, DYNAMIC_DRAW: 0x88E8,
+    VERTEX_SHADER: 1, FRAGMENT_SHADER: 2, LINK_STATUS: 3, COMPILE_STATUS: 4,
+    NO_ERROR: 0, COLOR_BUFFER_BIT: 0x4000, DEPTH_BUFFER_BIT: 0x100,
+    DEPTH_TEST: 0x0B71, CULL_FACE: 0x0B44, BACK: 0x0405, CCW: 0x0901,
+    TRIANGLES: 4, FLOAT: 0x1406,
+    // recursos
+    createBuffer: () => novo('buffer'),
+    createProgram: () => novo('programa'),
+    createShader: tipo => novo(`shader${tipo}`),
+    deleteShader() {},
+    shaderSource() {}, compileShader() {},
+    getShaderParameter: () => true, getShaderInfoLog: () => '',
+    attachShader() {}, linkProgram() {},
+    getProgramParameter: () => true, getProgramInfoLog: () => '',
+    getUniformLocation: () => novo('uniform'),
+    bindBuffer: (alvo, buf) => { ligado = buf; },
+    bufferData: (alvo, dados) => { bufDados.set(ligado, typeof dados === 'number' ? dados : dados.byteLength); },
+    bufferSubData() {},
+    useProgram() {}, uniformMatrix4fv() {}, uniform3f() {}, uniform1i() {},
+    uniform1f() {}, uniform2f() {},
+    viewport() {}, clearColor() {}, clear() {}, enable() {},
+    cullFace() {}, frontFace() {},
+    enableVertexAttribArray: i => ativos.add(i),
+    vertexAttribPointer: (i, size, tipo, norm, stride, offset) => {
+      atributos.set(i, { buf: ligado, stride, size, offset });
+    },
+    vertexAttribDivisor() {},
+    drawArrays: () => { chamadas.simples++; },
+    drawArraysInstanced: (modo, first, count, instancias) => {
+      chamadas.instanciadas.push({ first, count, instancias });
+      const a0 = atributos.get(0);
+      if (!a0 || !ativos.has(0)) return;
+      const bytes = bufDados.get(a0.buf) || 0;
+      const passo = a0.stride || a0.size * 4;
+      const cabem = Math.floor((bytes - a0.offset) / passo);
+      if (first + count > cabem) {
+        // exatamente o que o WebGL real faz: erro e chamada DESCARTADA
+        erros.push(`atributo 0 fora da faixa: pediu até ${first + count} vértices, o buffer tem ${cabem}`);
+      }
+    },
+    getError: () => 0,
+    chamadas, erros,
+    /** Controle negativo: prova que a validação acima não é vazia. */
+    verificarDefeitoArtificial(count) {
+      const antes = erros.length;
+      this.drawArraysInstanced(this.TRIANGLES, 0, count, 1);
+      return erros.length > antes;
+    }
+  };
+}
+
+await test('WebGL2: a chamada instanciada pede exatamente os vértices que o buffer tem', async () => {
+  const gl = glFalso();
+  const { app } = montarCidade({ webgl2: gl, ctx2d: null });
+  try {
+    assert.equal(app.backend, 'webgl2', 'com WebGL2 disponível, o backend é webgl2');
+    assert.equal(app.backendMotivo, '');
+    await sleep(260);                     // teto de 30 fps no montador: ~7 quadros
+    assert.equal(app.erro, '', 'o laço não pode ter parado: um stub faltando no GL falso tem que aparecer aqui');
+    assert.deepEqual(gl.erros, [], `o WebGL real teria descartado a chamada: ${gl.erros.join(' | ')}`);
+    const inst = gl.chamadas.instanciadas;
+    assert.ok(inst.length > 4, `chamadas instanciadas por vários quadros: ${inst.length}`);
+    assert.ok(inst.every(c => c.count === 24), `toda chamada usa as 6 faces (24 vértices): ${inst.map(c => c.count)}`);
+    assert.ok(inst.every(c => c.instancias > 500), `instâncias da cidade por quadro: ${inst.at(-1).instancias}`);
+    assert.ok(gl.chamadas.simples > 4, 'o chão é desenhado a cada quadro');
+    assert.equal(gl.chamadas.instanciadas.at(-1).instancias, app.stats.instances, 'a contagem do HUD é a contagem desenhada');
+    // controle negativo: com 48 vértices a validação acusa — o teste não é vazio
+    assert.equal(gl.verificarDefeitoArtificial(48), true, 'a validação precisa acusar um count fora da faixa');
+  } finally { app.onClose(); }
+});
+
 // ---------------------------------------------------------------- relatório --
 console.log(results.join('\n'));
 console.log(`\n${passed} passaram · ${failed} falharam${failed ? ' ✗' : ' ✓'}`);
