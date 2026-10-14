@@ -23,6 +23,7 @@ import * as G from '../js/core/geom.js';
 import { createLocalVFS } from '../js/core/vfs-local.js';
 import { safePath, fmtBytes, Histogram, clamp, baseName } from '../js/core/util.js';
 import { probeCapabilities } from '../js/boot.js';
+import { installFiles, sanitizeName, describeInstall, INSTALL_DIR } from '../js/core/import.js';
 
 let passed = 0, failed = 0;
 const results = [];
@@ -786,6 +787,13 @@ await test('o worker de I/O de produção atende o VFS por MessagePort', async (
     assert.equal(back.length, big.length);
     assert.deepEqual([...back.slice(-16)], [...big.slice(-16)]);
 
+    // Instalação de verdade pelo mesmo caminho: bytes do "computador real" para
+    // o disco virtual, passando pelo worker de produção.
+    const fake = (name, size) => ({ name, arrayBuffer: async () => new Uint8Array(size).fill(9).buffer });
+    const inst = await race(installFiles(vfs, [fake('foto.jpg', 40000), fake('nota.txt', 12)], { dir: INSTALL_DIR }), 'install');
+    assert.equal(inst.ok.length, 2, JSON.stringify(inst.failed));
+    assert.equal((await race(vfs.stat(`${INSTALL_DIR}/foto.jpg`), 'stat')).size, 40000);
+
     const uso = await race(vfs.usage(), 'usage');
     assert.ok(uso.usedBytes >= big.length);
     const bench = await race(vfs.bench(), 'bench', 15000);
@@ -796,7 +804,101 @@ await test('o worker de I/O de produção atende o VFS por MessagePort', async (
   }
 });
 
-section('14 · módulos (grafo de importação íntegro e carga sem DOM)');
+// ------------------------------------------ 15 instalação de arquivos no VFS --
+section('15 · instalação: trazer arquivos do computador real para o disco virtual');
+
+await test('sanitizeName transforma qualquer nome em nome de arquivo seguro', () => {
+  assert.equal(sanitizeName('foto.jpg'), 'foto.jpg');
+  assert.equal(sanitizeName('../../etc/passwd'), 'etc-passwd', 'segmentos relativos e barras não viram diretório');
+  assert.equal(sanitizeName('../x.txt'), 'x.txt');
+  assert.equal(sanitizeName('C:\\jogos\\save.dat'), 'C:-jogos-save.dat');
+  assert.equal(sanitizeName('  espaços.txt  '), 'espaços.txt');
+  assert.equal(sanitizeName('...oculto.txt'), 'oculto.txt');
+  assert.equal(sanitizeName('com\u0000controle.txt'), 'comcontrole.txt');
+  assert.equal(sanitizeName('ünicode-ção.txt'), 'ünicode-ção.txt', 'acentos são legítimos e ficam');
+  assert.equal(sanitizeName('x'.repeat(400)).length, 120, 'nome é truncado, não recusado');
+  assert.throws(() => sanitizeName(''), /inválido/);
+  assert.throws(() => sanitizeName('...'), /inválido/);
+  assert.throws(() => sanitizeName(null), /inválido/);
+});
+
+await test('installFiles grava, cria o destino, resolve colisão e mede bytes', async () => {
+  const vfs = createLocalVFS();
+  await vfs.init();
+  const mk = (name, size, byte = 7) => ({ name, arrayBuffer: async () => new Uint8Array(size).fill(byte).buffer });
+
+  const r1 = await installFiles(vfs, [mk('foto.jpg', 4096, 1), mk('nota.txt', 5, 2)], { dir: '/home/nucleo/fotos' });
+  assert.equal(r1.ok.length, 2, JSON.stringify(r1.failed));
+  assert.equal(r1.bytes, 4101);
+  assert.equal(r1.dir, '/home/nucleo/fotos');
+  assert.ok(r1.ms >= 0, 'o tempo é medido de verdade, não estimado');
+  assert.deepEqual(r1.ok.map(o => o.name).sort(), ['foto.jpg', 'nota.txt']);
+
+  // conteúdo íntegro, arquivo a arquivo
+  const foto = await vfs.read('/home/nucleo/fotos/foto.jpg');
+  assert.equal(foto.length, 4096);
+  assert.equal(foto[0], 1);
+  assert.equal((await vfs.read('/home/nucleo/fotos/nota.txt'))[0], 2);
+
+  // mesmo nome de novo: renomeia em vez de sobrescrever silenciosamente
+  const r2 = await installFiles(vfs, [mk('foto.jpg', 10, 3)], { dir: '/home/nucleo/fotos' });
+  assert.equal(r2.ok[0].name, 'foto (1).jpg');
+  assert.equal(r2.ok[0].renamed, true, 'a UI precisa saber que renomeou');
+  assert.equal((await vfs.read('/home/nucleo/fotos/foto.jpg')).length, 4096, 'o original não foi tocado');
+
+  // overwrite explícito substitui
+  const r3 = await installFiles(vfs, [mk('foto.jpg', 8, 4)], { dir: '/home/nucleo/fotos', overwrite: true });
+  assert.equal(r3.ok[0].renamed, false);
+  assert.equal((await vfs.read('/home/nucleo/fotos/foto.jpg')).length, 8);
+
+  // sufixo continua até achar nome livre
+  await installFiles(vfs, [mk('foto.jpg', 9)], { dir: '/home/nucleo/fotos' });
+  assert.equal((await vfs.list('/home/nucleo/fotos')).some(r => r.name === 'foto (2).jpg'), true);
+
+  const resumo = describeInstall(r1);
+  assert.match(resumo, /2 arquivos/);
+  assert.match(resumo, /fotos/);
+});
+
+await test('um arquivo que falha não derruba os outros, e a cota é respeitada', async () => {
+  const vfs = createLocalVFS();
+  await vfs.init();
+  const bom = { name: 'ok.txt', arrayBuffer: async () => new Uint8Array(10).fill(1).buffer };
+  const quebrado = { name: 'torpedo.bin', arrayBuffer: async () => { throw new Error('leitura falhou no disco do usuário'); } };
+  const semApi = { name: 'sem-api.bin' };
+
+  const r = await installFiles(vfs, [bom, quebrado, semApi], { dir: '/home/nucleo/teste' });
+  assert.equal(r.ok.length, 1);
+  assert.equal(r.ok[0].name, 'ok.txt');
+  assert.equal(r.failed.length, 2);
+  assert.match(r.failed.find(f => f.name === 'torpedo.bin').error, /leitura falhou/);
+  assert.match(r.failed.find(f => f.name === 'sem-api.bin').error, /arrayBuffer/);
+  assert.match(describeInstall(r), /falhou/);
+
+  // cota conhecida: recusa ANTES de escrever e diz os números reais
+  const grande = { name: 'grande.bin', arrayBuffer: async () => new Uint8Array(200 * 1024).buffer };
+  const rq = await installFiles(vfs, [grande], { dir: '/home/nucleo/teste', quotaMb: 1, usedMb: 0.9 });
+  assert.equal(rq.ok.length, 0);
+  assert.match(rq.failed[0].error, /cota do navegador/);
+  await assert.rejects(vfs.stat('/home/nucleo/teste/grande.bin'), /inexistente/, 'nada foi escrito');
+
+  // sem cota informada, não inventamos limite nenhum
+  const rn = await installFiles(vfs, [grande], { dir: '/home/nucleo/teste' });
+  assert.equal(rn.ok.length, 1, 'cota N/D não pode virar bloqueio inventado');
+});
+
+await test('progresso reporta bytes reais, acumulados', async () => {
+  const vfs = createLocalVFS();
+  await vfs.init();
+  const vistos = [];
+  const mk = (name, size) => ({ name, arrayBuffer: async () => new Uint8Array(size).buffer });
+  await installFiles(vfs, [mk('a.bin', 100), mk('b.bin', 250), mk('c.bin', 7)], {
+    dir: '/home/nucleo/lote', onProgress: p => vistos.push([p.name, p.size, p.done])
+  });
+  assert.deepEqual(vistos, [['a.bin', 100, 100], ['b.bin', 250, 350], ['c.bin', 7, 357]]);
+});
+
+section('16 · módulos (grafo de importação íntegro e carga sem DOM)');
 
 await test('todo o núcleo e os três workers carregam sem DOM e sem erro de topo', async () => {
   // Shim mínimo: os módulos de worker chamam acceptWorkerLink(self) no topo.
@@ -808,7 +910,7 @@ await test('todo o núcleo e os três workers carregam sem DOM e sem erro de top
 
   const coreModules = [
     'core/util.js', 'core/bus.js', 'core/geom.js', 'core/ipc.js', 'core/wire.js',
-    'core/snapshot.js', 'core/link.js', 'core/vfs.js', 'core/vfs-local.js', 'core/wm.js', 'core/mat4.js',
+    'core/snapshot.js', 'core/link.js', 'core/vfs.js', 'core/vfs-local.js', 'core/import.js', 'core/wm.js', 'core/mat4.js',
     'ui/icons.js', 'ui/toast.js', 'ui/hud.js',
     'apps/terminal.js', 'apps/files.js', 'apps/game.js', 'apps/settings.js',
     'boot.js', 'main.js'

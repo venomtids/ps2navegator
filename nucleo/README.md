@@ -19,7 +19,71 @@ npm start                 # http://localhost:3400
 
 Abra em **aba própria** para o modo completo.
 
-### O que muda em preview embutido (iframe de terceiros)
+## Como instalar coisas
+
+Três níveis diferentes — e é importante não confundir um com o outro.
+
+### 1. Dependências do projeto (só para os testes)
+
+```sh
+cd nucleo
+npm ci          # instala jsdom, usado APENAS pelos testes de interface
+```
+
+O sistema em si **não tem dependências de runtime**: `js/core`, `js/ui`, `js/apps` e
+`workers/` rodam sem `node_modules`. O `server.js` é `node:http` puro. Se `npm ci` não rodar,
+`npm start` continua funcionando — só `npm run test:ui` fica indisponível.
+
+### 2. Arquivos dentro do PC virtual (funciona hoje)
+
+O disco virtual (`VMFS`, sobre OPFS) aceita arquivos do seu computador de quatro formas:
+
+| Gesto | Onde cai |
+|---|---|
+| **Arrastar e soltar** em qualquer lugar do desktop | `~/Downloads` (o overlay diz o destino antes de soltar) |
+| Arrastar e soltar **na janela Arquivos** | o diretório aberto naquela janela |
+| `Ctrl+K` → *Instalar arquivos no PC virtual* | `~/Downloads` |
+| Terminal: `install` (ou `receber`) | o diretório atual do shell |
+
+No terminal, `install ~/fotos` instala no diretório indicado. Nada sai do seu computador: não há
+rede, não há upload, não há telemetria — são bytes do seu disco para o OPFS do navegador.
+
+Regras que o instalador aplica (todas com teste):
+
+- **nome nunca vira caminho**: `../../etc/passwd` entra como `etc-passwd`;
+- **nada é sobrescrito em silêncio**: nome repetido vira `arquivo (1).txt` e a UI avisa;
+- **cota antes da escrita**: quando o navegador informa a cota, o arquivo é recusado com os
+  números reais em vez de falhar no meio; sem cota informada, nenhum limite é inventado;
+- **falha isolada**: um arquivo ilegível não impede os outros de entrarem;
+- **progresso medido**: bytes e tempo reais, reportados no fim.
+
+Para conferir o que entrou: terminal `ls ~/Downloads`, `df` (uso e cota do disco) e `bench`
+(velocidade real de escrita/leitura do VMFS). Os arquivos ficam no OPFS do navegador para esta
+origem: sobrevivem a recarregar a página quando o backend é `OPFS`; em modo local (memória
+volátil) eles somem ao fechar a aba — e o HUD diz qual dos dois está ativo.
+
+### 3. Programas Linux (`apt install …`) — ainda não, e sem fingir
+
+O kernel do convidado é uma **vCPU simulada** (fase inicial): existe `SYS_EXEC`/`tick`, mas não há
+Linux de verdade rodando, e portanto não existe `apt`, `dpkg` nem repositório. Um `apt install`
+falso seria exatamente o tipo de mentira que este projeto evita — a resposta honesta é a fase F4 do
+roadmap (`docs/00-arquitetura.md` §6.1).
+
+Quando o runtime real entrar, o caminho já está definido e o disco não muda:
+
+```text
+hoje     instalar arquivo  →  VMFS (OPFS)                    ← real, testado
+F4       apt install       →  runtime Linux no w-kernel
+                             ├─ rootfs Debian no próprio VMFS (o instalador acima
+                             │  já coloca a imagem lá, sem código novo)
+                             ├─ rede do guest via WebSocket/WebRTC (proxy no host)
+                             └─ `install` passa a aceitar também pacotes .deb
+```
+
+Ou seja: o `nucleo/` que você tem hoje já é o disco dessa máquina. O que falta é o kernel de
+verdade, não o armazenamento nem o caminho de instalação.
+
+## O que muda em preview embutido (iframe de terceiros)
 
 Um iframe não herda isolamento de origem: sem `crossOriginIsolated`, o navegador **não expõe**
 `SharedArrayBuffer`. O sistema detecta isso na sondagem de boot e degrada de forma explícita,
@@ -66,6 +130,7 @@ Regra: nada é simulado para parecer que funciona. O que não existe aparece com
 | Terminal | funcional | shell sobre o VFS (`ls`, `cd`, `cat`, `write`, `rm`, `df`, `sysctl`, `bench`, `top`, `uname`), com caminhos normalizados e recusa de nomes hostis |
 | Gerenciador de arquivos | funcional | navegação, criação, remoção, renomeação no mesmo VFS do terminal |
 | Sistema de arquivos (VFS) | funcional | OPFS com `SyncAccessHandle` quando disponível, degradando para `createWritable` e para memória volátil — o backend em uso aparece na interface |
+| Instalador de arquivos | funcional | arrastar-e-soltar, paleta, janela Arquivos e `install` no terminal; sanitização de nome, colisão sem sobrescrita, cota checada antes da escrita |
 | Motor de mundo aberto | funcional | ECS SoA com passo fixo de 120 Hz, física de seguimento de faixa, IA de tráfego, snapshot binário, cena 3D em WebGL2 |
 | Telemetria (HUD) | funcional | FPS, P50/P95 de quadro, custo por worker, MB/s de I/O, entidades, ticks, transporte IPC |
 | Kernel Linux (Debian) | **emulado, fase inicial** | vCPU simulada com `SYS_EXEC`/`tick`; o terminal é o do NÚCLEO OS, **não** um Linux real |
@@ -118,7 +183,7 @@ index.html          shell do desktop (sem CDN, funciona offline)
 server.js           servidor estático mínimo com COOP/COEP (zero dependências)
 css/tokens.css      tokens do design system (fonte única de verdade)
 css/os.css          contrato visual de todos os componentes
-js/core/            ipc · link · wire · snapshot · vfs · vfs-local · geom · wm · bus · util · mat4
+js/core/            ipc · link · wire · snapshot · vfs · vfs-local · import · geom · wm · bus · util · mat4
 js/ui/              hud · toast · icons
 js/apps/            terminal · files · game · settings
 js/boot.js          boot + sondagem real de capacidades do navegador

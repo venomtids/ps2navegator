@@ -286,6 +286,34 @@ await test('o desktop monta inteiro mesmo sem worker, OPFS e canvas', async () =
     const raiz = await os.vfs.list('/');
     assert.ok(raiz.some(r => r.name === 'home'));
 
+    // Instalação por arrastar-e-soltar: o gesto que traz arquivos do computador
+    // real para dentro do PC virtual, exercitado com `File` de verdade.
+    const conteudo = new TextEncoder().encode('vindo do meu computador');
+    const arquivo = new restrito.window.File([conteudo], 'documento.txt');
+    const drop = new restrito.window.Event('drop', { bubbles: true, cancelable: true });
+    drop.dataTransfer = { files: [arquivo], types: ['Files'], dropEffect: 'copy' };
+    restrito.window.dispatchEvent(drop);
+    await sleep(60);
+
+    const instalado = new TextDecoder().decode(await os.vfs.read(`${os.installDir}/documento.txt`));
+    assert.equal(instalado, 'vindo do meu computador', 'o arquivo solto precisa estar no disco virtual');
+    assert.ok(document.body.textContent.includes('Instalado no disco virtual'), 'a interface precisa confirmar a instalação');
+
+    // Soltar de novo o mesmo nome não pode sobrescrever: vira cópia "(1)".
+    const drop2 = new restrito.window.Event('drop', { bubbles: true, cancelable: true });
+    drop2.dataTransfer = { files: [arquivo], types: ['Files'], dropEffect: 'copy' };
+    restrito.window.dispatchEvent(drop2);
+    await sleep(60);
+    const listados = (await os.vfs.list(os.installDir)).map(r => r.name).sort();
+    assert.deepEqual(listados, ['documento (1).txt', 'documento.txt']);
+
+    // E o overlay de instalação existe e é anunciado ao arrastar por cima.
+    assert.ok(document.querySelector('#dropzone'), 'o destino do drop precisa existir no DOM');
+    const drag = new restrito.window.Event('dragenter', { bubbles: true });
+    drag.dataTransfer = { files: [arquivo], types: ['Files'] };
+    restrito.window.dispatchEvent(drag);
+    assert.ok(document.querySelector('#dropzone').classList.contains('on'), 'arrastar precisa revelar o destino');
+
     // Abrir janela sem engine: precisa aparecer a declaração, não uma cena vazia mentirosa.
     const win = os.wm.open({ id: 'cidade', app: 'game', title: 'Cidade', w: 900, h: 560, create: () => ({ el: document.createElement('div') }) });
     assert.ok(win, 'o window manager precisa abrir uma janela mesmo sem subsistemas');

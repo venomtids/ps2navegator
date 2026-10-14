@@ -176,6 +176,16 @@ export function createTerminal({ vfs, os }) {
       os.launch(app);
       ok(`abrindo ${app}`);
     },
+    async install(args) {
+      // Instala arquivos do computador real no diretório atual do shell.
+      const dir = args[0] ? safePath(args[0], cwd) : cwd;
+      if (typeof os.installFiles !== 'function') return err('instalação indisponível neste modo');
+      const res = await os.installFiles(dir);
+      if (!res) return dim('nenhum arquivo selecionado');
+      for (const f of res.ok) ok(`${f.path.replace('/home/nucleo', '~')} · ${fmtBytes(f.size)}${f.renamed ? ' (renomeado: já existia)' : ''}`);
+      for (const f of res.failed) err(`${f.name}: ${f.error}`);
+      if (res.ok.length) dim(`total ${fmtBytes(res.bytes)} em ${Math.round(res.ms)} ms`);
+    },
     async reboot() { os.reboot(); }
   };
 
@@ -184,13 +194,18 @@ export function createTerminal({ vfs, os }) {
     mkdir: 'cria pasta', touch: 'cria arquivo vazio', write: 'grava texto em arquivo', rm: 'remove',
     df: 'uso do disco virtual', free: 'memória (real ou N/D)', ps: 'subsistemas e custo por tick',
     top: 'instantâneo da telemetria', sysctl: 'capacidades do navegador', bench: 'benchmark de I/O',
-    open: 'abre um app do desktop', neofetch: 'resumo da build', uname: 'identificação',
+    open: 'abre um app do desktop', install: 'instala arquivos do seu PC aqui (alias: receber)',
+    neofetch: 'resumo da build', uname: 'identificação',
     uptime: 'tempo de sessão', date: 'hora local', clear: 'limpa a tela', reboot: 'reinicia o OS'
   };
 
+  // Apelidos em português: o terminal é o app mais usado do sistema.
+  const ALIAS = { receber: 'install' };
+
   async function run(text) {
     const parts = text.split(/\s+/).filter(Boolean);
-    const cmd = parts.shift();
+    const cmd = ALIAS[parts[0]] || parts[0];
+    if (cmd !== parts[0]) parts[0] = cmd;
     const fn = COMMANDS[cmd];
     if (!fn) {
       err(`${cmd}: comando não encontrado`);

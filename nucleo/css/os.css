@@ -381,6 +381,30 @@ input,select,textarea{font:inherit;color:inherit}
   .hud{display:none!important}
   .icons{width:96px}
 }
+/* ------------------------------------------------------------------ dropzone --
+   Camada de instalação: aparece só enquanto há arquivos sendo arrastados e diz
+   o destino ANTES do drop — o usuário nunca "descobre depois" onde caiu. */
+.dropzone{
+  position:fixed;inset:10px;z-index:60;pointer-events:none;
+  display:grid;place-content:center;gap:7px;justify-items:center;text-align:center;
+  border:1.5px dashed var(--line-2);border-radius:16px;
+  background:radial-gradient(120% 90% at 50% 40%,rgba(53,240,255,.10),rgba(6,10,16,.82) 70%);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  opacity:0;transform:scale(.985);transition:opacity var(--t-160) var(--e-out),transform var(--t-160) var(--e-out);
+}
+.dropzone.on{opacity:1;transform:none}
+.dropzone .dz-icon{color:var(--neon);opacity:.85;filter:drop-shadow(0 0 12px rgba(53,240,255,.35))}
+.dropzone .dz-title{font:600 15px/1.3 var(--ui);color:var(--ink)}
+.dropzone .dz-path{font:400 11.5px/1.4 var(--mono);color:var(--ink-3)}
+
+/* janela de arquivos recebendo um drop */
+.fm.drop{outline:1.5px dashed var(--neon);outline-offset:-6px}
+.fm.drop::after{
+  content:'instalar aqui';position:absolute;right:12px;bottom:10px;
+  font:600 10.5px/1 var(--mono);letter-spacing:.08em;color:var(--neon);opacity:.9;
+}
+.fm{position:relative}
+
 @media (max-width:620px){
   .icons{flex-direction:row;width:auto;right:0;bottom:calc(var(--h-dock) + var(--h-taskbar));height:auto;flex-wrap:wrap}
   .dock{gap:0;padding:0 6px;transform:translateX(-50%) scale(.92)}

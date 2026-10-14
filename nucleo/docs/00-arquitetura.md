@@ -288,6 +288,17 @@ Rede: `w-kernel` fala com `w-net` por WebSocket; DNS/TCP são emulados por um *s
 que só permite destinos autorizados (mesma política de *allowlist* do `server.js` **[P]**).
 WebRTC entra apenas para transporte quando o servidor expõe `datachannel` — nunca para furar bloqueios.
 
+### 6.2.1 Entrada de dados (o que já existe)
+
+O subsistema Linux **não** tem `apt` hoje: sem runtime de verdade não há gerenciador de pacotes, e
+um `apt` simulado seria mentira. O caminho de entrada de dados, porém, já está construído e
+testado — `js/core/import.js` instala arquivos do computador real no VMFS (arrastar-e-soltar,
+paleta, janela Arquivos e comando `install` no terminal), com sanitização de nome, colisão sem
+sobrescrita e cota verificada antes da escrita.
+
+Quando o runtime entrar (F4), o rootfs Debian chega pelo **mesmo** instalador: o disco já é o do
+convidado, então não há caminho novo a inventar — apenas um consumidor novo para o mesmo contrato.
+
 ### 6.3 Critérios de aceite do subsistema
 
 - `uname -a` e `cat /etc/debian_version` respondem **do guest**, não da UI. **[R]**

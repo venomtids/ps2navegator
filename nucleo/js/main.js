@@ -4,7 +4,7 @@
  * Nada aqui desenha a interface dos apps — só cria o ambiente e mede o ambiente.
  */
 
-import { $, el, fmt1, clamp, sleep } from './core/util.js';
+import { $, el, fmt1, fmtBytes, clamp, sleep } from './core/util.js';
 import { createBus } from './core/bus.js';
 import { OP, sharedBusAvailable } from './core/ipc.js';
 import { connectWorker } from './core/link.js';
@@ -12,6 +12,7 @@ import { unpackStats, writeTick, emptyStats, textDecoder } from './core/wire.js'
 import { createSnapshotBuffer, createReader, snapshotStrategy, applyPackedSnapshot, FIELDS } from './core/snapshot.js';
 import { createVFS } from './core/vfs.js';
 import { createLocalVFS } from './core/vfs-local.js';
+import { installFiles as installIntoDisk, describeInstall, INSTALL_DIR } from './core/import.js';
 import { createWM } from './core/wm.js';
 import { createHUD } from './ui/hud.js';
 import { createToasts } from './ui/toast.js';
@@ -172,13 +173,16 @@ export async function startOS() {
     reportGame,
     diagnostics,
     reboot: () => location.reload(),
+    installFiles,
+    installDir: INSTALL_DIR,
     destroy,
     restartWorkers
   };
 
   os.apps = [
     { id: 'terminal', title: 'Terminal', icon: 'terminal', w: 780, h: 440, create: () => createTerminal({ vfs, os }) },
-    { id: 'arquivos', title: 'Arquivos', icon: 'files', w: 760, h: 460, create: () => createFiles({ vfs, toast: toasts }) },
+    { id: 'arquivos', title: 'Arquivos', icon: 'files', w: 760, h: 460,
+      create: () => createFiles({ vfs, toast: toasts, onDropFiles: (dir, files) => installFiles(dir, files) }) },
     { id: 'cidade', title: 'Cidade — motor 3D', icon: 'game', w: 900, h: 560, create: makeGame },
     { id: 'ajustes', title: 'Configurações', icon: 'settings', w: 720, h: 560, hidden: true }
   ];
@@ -242,6 +246,71 @@ export async function startOS() {
     toasts.ok(`Perfil ${name}`, `escala ${p.renderScale}× · ${p.fpsCap} fps · ${p.entities} entidades`);
     settingsPanel?.refresh();
   }
+
+  // ------------------------------------------------------------ instalação --
+  /**
+   * Copia arquivos do computador real para o disco virtual. É o único caminho de
+   * entrada de dados no sistema — sem rede, sem upload, sem telemetria.
+   *
+   * `files` nulo abre o seletor do navegador; um `FileList` (drop) segue direto.
+   */
+  async function installFiles(dir = INSTALL_DIR, files = null) {
+    if (!files) return pickFiles(dir);
+    const items = Array.from(files);
+    if (!items.length) return null;
+
+    const total = items.reduce((a, f) => a + (f.size || 0), 0);
+    toasts.push({ kind: 'info', ms: 2500, title: 'Instalando', text: `${items.length} arquivo(s) · ${fmtBytes(total)} → ${String(dir).replace('/home/nucleo', '~')}` });
+
+    const res = await installIntoDisk(vfs, items, {
+      dir,
+      quotaMb: os.storageSnapshot?.quotaMb,
+      usedMb: os.storageSnapshot?.usedMb
+    });
+
+    if (res.ok.length) {
+      toasts.ok('Instalado no disco virtual', describeInstall(res));
+      bus.emit('vfs:changed', { dir: res.dir });
+      // O painel de arquivos, se aberto, precisa mostrar o que acabou de entrar.
+      settingsPanel?.refresh?.();
+    }
+    for (const f of res.failed) toasts.err(`Falhou: ${f.name}`, f.error);
+    console.info('[install]', res);
+    return res;
+  }
+
+  function pickFiles(dir) {
+    const input = el('input', { type: 'file', multiple: true, style: { display: 'none' } });
+    input.addEventListener('change', () => {
+      const chosen = input.files;
+      input.remove();
+      installFiles(dir, chosen);
+    });
+    document.body.append(input);
+    input.click();
+  }
+
+  // Soltar arquivos em qualquer lugar do desktop instala em ~/Downloads.
+  // O gesto é o mesmo de qualquer SO — e o destino é dito antes de soltar.
+  const dropzone = el('div', { class: 'dropzone', id: 'dropzone', 'aria-hidden': 'true' },
+    el('div', { class: 'dz-icon' }, svgIcon('files', 26)),
+    el('div', { class: 'dz-title', text: 'Solte para instalar no PC virtual' }),
+    el('div', { class: 'dz-path', text: String(INSTALL_DIR).replace('/home/nucleo', 'home/nucleo/') })
+  );
+  document.body.append(dropzone);
+
+  const hasFiles = e => Boolean(e.dataTransfer?.files?.length) || (e.dataTransfer?.types || []).includes('Files');
+  let dragDepth = 0;
+  window.addEventListener('dragenter', e => { if (!hasFiles(e)) return; dragDepth++; dropzone.classList.add('on'); });
+  window.addEventListener('dragover', e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dropzone.classList.remove('on'); } });
+  window.addEventListener('drop', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    dropzone.classList.remove('on');
+    installFiles(INSTALL_DIR, e.dataTransfer.files);
+  });
 
   let settingsPanel = null;
   function openSettings() {
@@ -369,6 +438,7 @@ export async function startOS() {
       ...os.apps.filter(a => !a.hidden).map(a => ({ label: `Abrir ${a.title}`, icon: a.icon, run: () => launch(a.id) })),
       { label: 'Alternar HUD de telemetria', icon: 'hud', run: () => setSetting('hud', !hud.visible) },
       { label: 'Configurações do sistema', icon: 'settings', run: openSettings },
+      { label: 'Instalar arquivos no PC virtual (vai para ~/Downloads)', icon: 'files', run: () => installFiles(INSTALL_DIR) },
       { label: 'Benchmark do disco virtual', icon: 'storage', run: async () => { const r = await vfs.bench(); toasts.ok('I/O do VMFS', `escrita ${fmt1(r.writeMbps)} MB/s · leitura ${fmt1(r.readMbps)} MB/s`); } },
       { label: 'Copiar diagnóstico', icon: 'chip', run: async () => { await navigator.clipboard?.writeText(diagnostics()); toasts.ok('Diagnóstico', 'copiado'); } },
       { label: 'Reiniciar subsistemas (workers)', icon: 'reboot', run: restartWorkers }

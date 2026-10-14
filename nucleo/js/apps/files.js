@@ -2,6 +2,9 @@
  * NÚCLEO OS — apps/files.js
  * Gerenciador de arquivos do VMFS (§6.10). Todas as ações são reais no VMFS
  * (OPFS via w-io): nada aqui é maquete.
+ *
+ * Instalação: soltar arquivos nesta janela grava-os no diretório aberto
+ * (`onDropFiles(cwd, files)`), que é o gesto natural de "colocar coisas dentro".
  */
 
 import { el, fmtBytes, baseName, safePath } from '../core/util.js';
@@ -9,7 +12,7 @@ import { svgIcon } from '../ui/icons.js';
 
 const ROOTS = ['/', '/home/nucleo', '/etc', '/var/nucleo', '/mnt/nucleo'];
 
-export function createFiles({ vfs, toast }) {
+export function createFiles({ vfs, toast, onDropFiles = null }) {
   const tree = el('div', { class: 'tree' });
   const list = el('div', { class: 'list', role: 'grid', 'aria-label': 'Arquivos' });
   const pathLabel = el('span', { class: 'path' });
@@ -123,6 +126,21 @@ export function createFiles({ vfs, toast }) {
       await refresh();
     } catch (e) { toast.err('Operação falhou', String(e.message || e)); }
   }
+
+  // ------------------------------------------------ drop = instalar aqui ----
+  let dragDepth = 0;
+  const hasFiles = e => Boolean(e.dataTransfer?.files?.length) || (e.dataTransfer?.types || []).includes('Files');
+  root.addEventListener('dragenter', e => { if (!onDropFiles || !hasFiles(e)) return; dragDepth++; root.classList.add('drop'); });
+  root.addEventListener('dragover', e => { if (!onDropFiles || !hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  root.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; root.classList.remove('drop'); } });
+  root.addEventListener('drop', async e => {
+    if (!onDropFiles || !hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    root.classList.remove('drop');
+    await onDropFiles(cwd, e.dataTransfer.files);
+    await refresh();
+  });
 
   renderTree();
   pathLabel.textContent = cwd;
