@@ -1094,8 +1094,10 @@ await test('todo o núcleo e os três workers carregam sem DOM e sem erro de top
   const coreModules = [
     'core/util.js', 'core/bus.js', 'core/geom.js', 'core/ipc.js', 'core/wire.js',
     'core/snapshot.js', 'core/link.js', 'core/vfs.js', 'core/vfs-local.js', 'core/import.js', 'core/fetchpolicy.js', 'core/htmltext.js', 'core/wm.js', 'core/mat4.js',
+    'core/css.js', 'core/layout.js', 'core/srcpage.js',
     'ui/icons.js', 'ui/toast.js', 'ui/hud.js',
-    'apps/terminal.js', 'apps/files.js', 'apps/game.js', 'apps/settings.js',
+    'apps/terminal.js', 'apps/browser.js', 'apps/gfx/paint.js', 'apps/gfx/images.js',
+    'apps/files.js', 'apps/game.js', 'apps/settings.js',
     'boot.js', 'main.js'
   ];
   const exported = [];

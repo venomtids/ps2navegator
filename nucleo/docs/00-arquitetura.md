@@ -299,43 +299,66 @@ sobrescrita e cota verificada antes da escrita.
 Quando o runtime entrar (F4), o rootfs Debian chega pelo **mesmo** instalador: o disco já é o do
 convidado, então não há caminho novo a inventar — apenas um consumidor novo para o mesmo contrato.
 
-### 6.2.2 Navegador do sistema (modo texto) — o que dá para ter agora
+### 6.2.2 Navegador do sistema — motor de renderização próprio
 
-Rede dentro de uma página `crossOriginIsolated` é um problema de engenharia com duas metades:
+A pergunta "dá para instalar o Firefox aqui?" tem três respostas verificadas (README, seção do
+navegador): (1) binário de navegador dentro do convidado exige o runtime real da F4 — testado e
+bloqueado por bibliotecas (`libnspr4.so`) e por falta de espelho Debian alcançável; (2) emular um
+PC x86 (v86, BSD-2) e bootar Linux dentro do navegador é a rota correta para "Linux de verdade",
+mas as imagens de disco não estão em hosts alcançáveis — sem imagem não há boot e, sem navegador, o
+boot não poderia ser validado (e aqui **nada** é afirmado sem validação); (3) navegador open-source
+em Wasm autocontido não existe publicado (busca no registro npm: NetSurf, Dillo, w3m, motores de
+HTML — zero resultados).
+
+O caminho que resta é o que foi construído: **um motor de renderização próprio**, em quatro
+estágios, com fronteiras de responsabilidade explícitas.
 
 ```text
-                             ┌─ iframe apontando para o site ──────────────┐
-pedido do usuário            │  X-Frame-Options / frame-ancestors recusam  │  → área branca
-"abrir site.com"             │  e a COEP require-corp bloqueia a origem    │
-                             └─────────────────────────────────────────────┘
-                             ┌─ proxy no host + renderização no cliente ──┐
-                             │  /api/fetch  → política → DNS → redirects   │
-                             │  htmltext.js → linhas + segmentos clicáveis │  → funciona hoje
-                             │  histórico, endereço, salvar em ~/Downloads │
-                             └─────────────────────────────────────────────┘
+  /api/fetch (proxy com política)        ← fronteira de rede: único ponto que fala com a internet
+        │  HTML + content-type + url final
+        ▼
+  js/core/srcpage.js                     ← pipeline: DOMParser, <link rel=stylesheet> (≤8, 512 KB
+        │                                   cada), CSS inline, lista de imagens, NOTAS do que o
+        │                                   motor não renderiza (script/iframe/SVG/vídeo)
+        ▼
+  js/core/css.js    → js/core/layout.js  ← cascata (especificidade, herança, shorthands, @media,
+        │                                   style="") → árvore de caixas → itens absolutos
+        ▼
+  js/apps/gfx/images.js → gfx/paint.js   ← bytes → bitmap (createImageBitmap, queda p/ Image) →
+                                            canvas 2D com culling e hit-test de links
 ```
 
-**Módulos.** `js/core/fetchpolicy.js` (política pura, sem I/O — testável por tabela),
-`server/fetch-route.js` (rota `/api/fetch`, com `fetch`/`lookup` injetáveis),
-`js/core/htmltext.js` (HTML → texto, `DOMParser` injetado) e `js/apps/browser.js` (a janela).
+**Decisões que valem registro:**
 
-**Fronteira de confiança.** O servidor passa a ser um proxy de leitura, e um proxy é a superfície
-mais perigosa do sistema: por isso as decisões estão em um módulo puro e **cada salto de
-redirecionamento é validado de novo** (seguir `Location` automaticamente é como um proxy deixa de
-ser seguro). Cadeia: esquema → credenciais → porta (80/443, denylist de serviços internos) → nome
-local (`localhost`, `.local`, `.internal`) → IPv4/IPv6 literais (incluindo `::ffff:0:0/96` nas
-formas decimal **e** hexadecimal, via `expandV6`) → DNS → tetos de 2 MiB (texto) / 8 MiB (bruto) e
-timeout de 15 s. Resíduos declarados: DNS rebinding (checagem é pré-conexão) e NAT64
-`64:ff9b::/96`. Mitigação: o servidor é de uso local e o README diz isso.
+- **HTML é dado, nunca código.** O motor não executa JavaScript de página; um `<script>` é
+  contado e reportado. Isso elimina por construção a classe de ataque mais comum da web
+  (XSS chegando pelo conteúdo renderizado) — a página não tem como rodar nada.
+- **Falha de folha de estilo degrada, não quebra.** O CSS que não carrega vira nota com o motivo
+  (`ECONNRESET`, 404, tempo esgotado) e a página é pintada sem aquelas regras. Degradação visível,
+  nunca tela branca.
+- **Imagens: duas passadas.** A primeira passada mostra o texto alternativo e registra a
+  candidata; quando o bitmap chega, o layout é refeito com o tamanho real (reflow) e a imagem
+  entra. Imagem sem `width`/`height` e sem download bem-sucedido permanece como alternativa —
+  nunca uma caixa de tamanho inventado.
+- **Limites são declarados na interface:** 2 MiB de texto (proxy), 8 MiB por download,
+  24 imagens por página, 3 MB por imagem, 8 s por imagem, 4000 linhas no modo texto.
+- **Flex/Grid/float/`position` não existem** e caem no fluxo de blocos — o conteúdo continua
+  legível e clicável. `display: table`/`inline-block` têm implementação própria (células lado a
+  lado; caixa atômica na linha).
+- **Culling na pintura:** só o que está na viewport (com margem de 64 px) é desenhado — é o que
+  mantém a rolagem barata em páginas de 20 mil itens de layout.
 
-**Representação.** A página vira `{ title, lines, links, base }`, onde cada linha tem
-`segments: [{ text, href }]` — uma frase com um link continua **uma linha**, e só o trecho do link
-é clicável. É essa escolha que separa um leitor de texto usável de uma lista de fragmentos.
+**Orçamento medido nesta máquina** (página do GitHub, 412 KB de HTML, sem CSS alcançável):
+2211 itens de layout, 535 caixas, 856 linhas, 1072 hitboxes de link, **76 ms de layout** e
+**1,1 ms de pintura** do primeiro quadro. Números medidos, não estimados.
 
-**Limites declarados na interface.** 4000 linhas por página (com aviso), sem CSS/layout/imagens
-pintadas e sem JavaScript do site. O navegador **diz** que é modo texto; não existe tentativa de
-parecer um motor gráfico. F4 entregaria o item 1 do menu de opções (navegador real dentro do Linux
-emulado); até lá, este é o caminho honesto.
+**Fronteira de confiança.** A superfície perigosa é o proxy (`server/fetch-route.js`), e é por
+isso que a decisão de destino vive em um módulo puro (`js/core/fetchpolicy.js`) testado por tabela:
+esquema → credenciais → porta (80/443 + denylist de serviços internos) → nome local → IPv4/IPv6
+(incluindo `::ffff:0:0/96` nas formas decimal e hexadecimal) → DNS antes **e** depois de resolver →
+cada salto de redirecionamento revalidado (seguir `Location` automaticamente é como um proxy deixa
+de ser seguro). Resíduos declarados: DNS rebinding e NAT64 `64:ff9b::/96`; mitigação: servidor de
+uso local.
 
 ### 6.3 Critérios de aceite do subsistema
 

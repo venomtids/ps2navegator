@@ -192,6 +192,27 @@ Mostra o atalho à direita de cada ação. É o atalho de teclado de tudo que ex
 
 ---
 
+### 6.13 Navegador (motor próprio)
+
+Duas superfícies convivem na mesma janela, e a diferença é dita na barra de estado:
+
+| Superfície | Tratamento | Regra |
+|---|---|---|
+| Viewport gráfico (canvas) | fundo branco do documento, sem moldura interna | a página é a página: o cromo do NÚCLEO OS não entra nela. O canvas fica com `cursor: default`, virando `pointer` **só** sobre link |
+| Barra de ferramentas | mesma anatomia do §6.5 (`.btn.sm`, altura 26 px, raio 8 px) | voltar/avançar/recarregar, endereço, modo, zoom, salvar |
+| Barra de metadados | `--mono` 10,5 px, `--ink-3` | `status · bytes · ms · layout · pintura · links · imagens · %` — cada número tem origem declarada |
+| Botão `notas N` | pílula neutra; vira acento (`--neon`) quando N > 0 | é o compromisso de honestidade em forma de controle: quando a página pede algo que o motor não faz, o contador sobe e o painel lista com números |
+| Painel de notas | `rgba(6,11,18,.72)`, `--mono` 10,5 px, máximo 132 px com rolagem | sintaxe de lista com `•`, uma nota por linha, sem jargão |
+| Modo texto | mesmos tokens do terminal (§6.9): linhas densas, links `--neon` sublinhados | alternativa de leitura e de rede lenta, não uma degradação envergonhada |
+
+Micro-interações da janela: o zoom mantém o centro da viewport (não “pula” para o canto); a
+rolagem por roda, arrastar e teclado compartilham o mesmo estado; o hover de link promove o
+destino à barra de status sem tooltip flutuante — informação onde o olho já está.
+
+**Nada de esqueleto falso:** enquanto a página carrega, a barra de estado muda para `buscando …`
+com a classe `.busy` (acento) em vez de exibir uma animação de carregamento que não corresponde a
+progresso real. Sem progresso medido, sem indicador de progresso.
+
 ## 7. Micro-interações
 
 | Gesto | Feedback |
@@ -271,6 +292,12 @@ arrastar/redimensionar com área ampliada.
 | Boot e probes | `js/boot.js` |
 | Barramento | `js/core/ipc.js` |
 | Eventos de UI e toasts | `js/core/bus.js`, `js/ui/toast.js` |
+| Navegador: cascata de CSS | `js/core/css.js` |
+| Navegador: layout (caixas e linhas) | `js/core/layout.js` |
+| Navegador: pipeline da página | `js/core/srcpage.js` |
+| Navegador: pintura e hit-test | `js/apps/gfx/paint.js` |
+| Navegador: imagens | `js/apps/gfx/images.js` |
+| Navegador: janela e interação | `js/apps/browser.js` |
 
 O protótipo é a **prova executável** deste documento: os valores citados aqui são os
 valores em `tokens.css`, e as regras de §2.1 (teto de área, 3 superfícies, fallback)

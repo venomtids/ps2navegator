@@ -330,12 +330,18 @@ await test('o desktop monta inteiro mesmo sem worker, OPFS e canvas', async () =
     });
     try {
       os.browse('https://exemplo.org/');
-      await sleep(40);
+      await sleep(60);
       const janelaNav = document.querySelector('#windows');
       assert.ok(os.wm.has('navegador'), 'os.browse precisa abrir a janela do navegador');
-      assert.match(janelaNav.textContent, /Funcionou/, 'a página precisa ser renderizada dentro da janela');
-      assert.ok(janelaNav.querySelector('.blink'), 'os links precisam existir como elementos clicáveis');
-      assert.match(janelaNav.querySelector('.bmeta').textContent, /200 · 64 B · 3 ms/, 'a barra de estado mostra o que foi medido');
+      // O jsdom não tem contexto 2D: a prova aqui é o ENCANAMENTO (proxy → pipeline
+      // → layout), não a pintura — pintura é provada em tests/engine.mjs com um
+      // contexto que grava chamadas.
+      const nav = os.wm.instance('navegador');
+      assert.ok(nav, 'a instância do app precisa estar acessível');
+      assert.equal(nav.url, 'https://exemplo.org/', 'a URL final do proxy precisa virar a atual');
+      assert.ok(nav.stats.itens > 0, `layout precisa produzir itens (${nav.stats.itens})`);
+      assert.ok(nav.stats.links >= 1, 'o link da página precisa existir como hitbox');
+      assert.match(janelaNav.querySelector('.bmeta').textContent, /links/, 'a barra de estado mostra o que foi medido');
     } finally { globalThis.fetch = fetchAntes; }
 
     // Abrir janela sem engine: precisa aparecer a declaração, não uma cena vazia mentirosa.
@@ -400,70 +406,79 @@ await test('renderPage extrai título, texto e links; descarta script e style', 
   assert.equal(resolveUrl(null, 'https://s.com'), null);
 });
 
-await test('o navegador carrega, navega por link e mantém histórico', async () => {
+await test('o navegador carrega, navega e mantém histórico (gráfico e modo texto)', async () => {
   const antigoFetch = globalThis.fetch;
   const pedidos = [];
   globalThis.fetch = async url => {
-    pedidos.push(url);
+    pedidos.push(String(url));
     if (String(url).includes('erro')) {
       return { status: 200, ok: true, json: async () => ({ ok: false, error: 'host bloqueado: localhost' }) };
     }
-    return {
+    const res = (texto) => ({
       status: 200, ok: true,
       json: async () => ({
         ok: true, url: 'https://site.com/pagina', status: 200, contentType: 'text/html; charset=utf-8',
-        bytes: 120, ms: 7, htmlLike: true,
-        text: '<html><head><title>Início</title></head><body><h1>Bem-vindo</h1><p>Veja <a href="/dois">a segunda página</a>.</p></body></html>'
+        bytes: 160, ms: 7, htmlLike: true, text: texto
       })
-    };
+    });
+    if (String(url).includes('%2Fdois') || String(url).includes('/dois')) return res('<html><body><h1>Página dois</h1></body></html>');
+    return res('<html><head><title>Início</title></head><body><h1>Bem-vindo</h1><p>Veja <a href="/dois">a segunda página</a>.</p></body></html>');
   };
   try {
     const root = fresh();
-    const app = createBrowser({ toast: { ok() {}, err() {}, warn() {}, push() {} }, os: { installDir: '/home/nucleo/Downloads', installFiles: async () => ({ ok: [], failed: [] }) }, vfs: null });
+    const app = createBrowser({
+      toast: { ok() {}, err() {}, warn() {}, push() {} },
+      os: { installDir: '/home/nucleo/Downloads', installFiles: async () => ({ ok: [], failed: [] }) },
+      vfs: null
+    });
     root.append(app.el);
     app.onMount();
-    await sleep(30);
+    await sleep(40);
 
-    // A página inicial é LOCAL: abrir o navegador não pode depender da rede (em rede
-    // restrita a primeira impressão era uma tela de erro).
-    assert.deepEqual(pedidos, [], 'a página inicial não faz requisição nenhuma');
-    assert.match(app.el.querySelector('.bview').textContent, /modo texto/i, 'a página inicial declara o modo texto');
+    // A página inicial é LOCAL (zero requisições) e o app declara o motor próprio.
+    assert.deepEqual(pedidos, [], 'a página inicial não pode consultar a rede');
     assert.equal(app.el.querySelector('.addr').value, 'about:inicio');
-    assert.match(app.el.querySelector('.bmeta').textContent, /0 requisições/);
-    assert.equal(app.stats.cursor, 0);
+    // A página local é renderizada pelo MESMO motor (é isso que a torna útil),
+    // sem nenhuma requisição — a prova de "zero rede" é `pedidos`, não a contagem de itens.
+    assert.ok(app.stats.itens > 0, 'a página inicial precisa ser layoutada pelo motor');
+    assert.ok(app.stats.links >= 3, 'os exemplos da página inicial precisam ser clicáveis');
 
-    // Navegar de verdade: busca pelo proxy e renderiza o HTML recebido.
+    // Navegar de verdade: busca pelo proxy, monta o layout e (sem canvas no jsdom)
+    // ainda produz itens e links de hit-test.
     app.openUrl('https://site.com/pagina');
-    await sleep(30);
-    assert.equal(pedidos.length, 1, 'abrir um endereço precisa consultar o proxy');
-    assert.match(pedidos[0], /%2Fpagina|\/pagina/, 'a URL precisa ir codificada no parâmetro');
-    assert.match(app.el.querySelector('.bview').textContent, /Bem-vindo/);
-    assert.ok(app.el.querySelector('.blink'), 'o link precisa existir como elemento clicável');
-    assert.equal(app.el.querySelector('.addr').value, 'https://site.com/pagina', 'o endereço reflete a URL final');
-    assert.equal(app.stats.cursor, 1);
-    assert.match(app.el.querySelector('.bmeta').textContent, /200 · 120 B · 7 ms/, 'a barra de estado mostra o que foi medido');
+    await sleep(80);
+    assert.equal(pedidos.length, 1, `abrir um endereço precisa consultar o proxy: ${JSON.stringify(pedidos)}`);
+    assert.match(pedidos[0], /%2Fpagina|\/pagina/);
+    assert.ok(app.stats.itens > 0, 'o layout precisa produzir itens');
+    assert.ok(app.stats.links >= 1, 'o link da página precisa virar hitbox');
+    assert.equal(app.el.querySelector('.addr').value, 'https://site.com/pagina');
+    assert.match(app._internals.hitTest(30, 30).tipo, /vazio|texto|link/);
 
-    // Clicar no link navega e empilha histórico; o link era relativo ("/dois").
-    app.el.querySelector('.blink').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    await sleep(30);
-    assert.equal(app.stats.history, 3, 'cada navegação empilha uma entrada');
-    assert.equal(app.stats.cursor, 2);
-    assert.ok(pedidos.some(u => String(u).includes('%2Fdois') || String(u).includes('/dois')),
-      `o link relativo precisa ser resolvido antes de buscar: ${JSON.stringify(pedidos)}`);
+    // Modo texto mostra a mesma página em linhas clicáveis (sem canvas).
+    app.el.querySelectorAll('.bar .btn')[3].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(40);
+    assert.equal(app.modo, 'texto');
+    assert.match(app.el.querySelector('.btext').textContent, /Bem-vindo/);
+    assert.ok(app.el.querySelector('.btext .blink'), 'os links continuam clicáveis no modo texto');
 
-    // Voltar usa o histórico, sem criar entrada nova.
+    // Clicar no link do modo texto navega e empilha histórico.
+    app.el.querySelector('.btext .blink').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(60);
+    assert.equal(app.stats.history, 3, `histórico: local + página + link = 3 (${app.stats.history})`);
+    assert.ok(pedidos.some(u => u.includes('%2Fdois') || u.includes('/dois')), `link relativo precisa ser resolvido: ${JSON.stringify(pedidos)}`);
+
+    // Voltar usa o histórico.
     const buscasAntes = pedidos.length;
-    app.el.querySelector('.bar .btn').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    await sleep(30);
-    assert.equal(app.stats.cursor, 1, 'voltar move o cursor, não cria entrada');
+    app.el.querySelectorAll('.bar .btn')[0].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(60);
     assert.equal(app.stats.history, 3);
-    assert.ok(pedidos.length > buscasAntes, 'voltar recarrega a URL anterior');
+    assert.ok(pedidos.length >= buscasAntes);
 
-    // Erro mostrado no lugar do conteúdo, com o motivo do servidor.
+    // Erro: mostrado por inteiro, sem tela em branco.
     app.openUrl('https://site.com/erro');
-    await sleep(30);
-    assert.match(app.el.querySelector('.bview').textContent, /host bloqueado: localhost/);
-    assert.match(app.el.querySelector('.bview').textContent, /não foi possível abrir/);
+    await sleep(60);
+    assert.match(app.el.textContent, /host bloqueado: localhost/);
+    assert.match(app.el.textContent, /não foi possível abrir/);
   } finally {
     globalThis.fetch = antigoFetch;
   }

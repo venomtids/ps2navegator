@@ -83,61 +83,85 @@ F4       apt install       →  runtime Linux no w-kernel
 Ou seja: o `nucleo/` que você tem hoje já é o disco dessa máquina. O que falta é o kernel de
 verdade, não o armazenamento nem o caminho de instalação.
 
-## Como instalar um navegador nele
+## O navegador do sistema (motor próprio, gráfico)
 
-Resposta curta e em camadas, porque "instalar o Chrome aqui dentro" tem três significados
-diferentes — e só um deles é mentira:
-
-**1. Um navegador gráfico de verdade (Chrome, Firefox) rodando *dentro* do PC virtual.**
-Precisa do runtime Linux real, que é a fase F4 (`docs/00-arquitetura.md` §6.1). Não existe ainda, e
-um "Chrome" de mentira seria pior do que dizer isso.
-
-**2. Embutir o site dentro da interface por `iframe`.** Não funciona por dois motivos independentes:
-a maioria dos sites proíbe ser embutida (`X-Frame-Options`/`frame-ancestors`) e a nossa própria
-página é `crossOriginIsolated` (COEP `require-corp`), então nada de outra origem é carregado no
-documento. O resultado prático seria uma área em branco — não uma janela de navegador.
-
-**3. Um navegador do sistema, modo texto — este existe e está funcionando.**
-É o "Lynx do NÚCLEO": a página é buscada pelo servidor local (`/api/fetch`), convertida em texto e
-linhas clicáveis, e navegada dentro de uma janela normal do desktop.
-
-| Recurso | Estado | Como usar |
-|---|---|---|
-| Abrir | funcional | dock **Navegador**, paleta (`Ctrl+K` → *Abrir o navegador do sistema*), ou terminal `browse <endereço>` (alias `navegar`, `www`) |
-| Página inicial | funcional | `about:inicio` — **local, zero requisições**: explica o modo texto, os atalhos e mostra exemplos; abrir o navegador nunca depende da rede |
-| Endereço | funcional | digitar e `Enter`; sem esquema assume `https://`; o que não parece domínio vira busca na Wikipédia |
-| Navegação | funcional | links em néon clicáveis, `←`/`→` (ou `Alt+←`/`Alt+→`), `⟳`/`F5`, `Ctrl+L` para a barra de endereço |
-| Salvar | funcional | botão **Salvar** grava o recurso em `~/Downloads` pelo mesmo instalador (aparece em `ls`, `Arquivos`) |
-| Renderização | **modo texto** | título, cabeçalhos, listas, citações, `<pre>`, imagens (`[imagem: alt]`) e links; **não** há layout, CSS, imagens pintadas nem JavaScript do site |
-
-O que o servidor recusa, com o motivo escrito na própria página de erro (nada é silencioso):
-`file://`, `data:`, `javascript:`, credenciais na URL, portas baixas fora de 80/443, portas de
-serviços internos (Docker API, Redis, bancos — lista em `js/core/fetchpolicy.js`), `localhost`,
-sufixos `.local`/`.internal`, qualquer IP privado/loopback/link-local, e redirecionamentos que
-levem para dentro da rede. As guardas são testadas antes **e** depois do DNS, porque um hostname
-público pode resolver para um IP privado.
+O Navegador do NÚCLEO OS é um navegador de verdade dentro da janela: busca a página,
+baixa o CSS, calcula layout, decodifica imagens, **pinta em canvas** e deixa você clicar
+nos links. Tudo escrito aqui dentro — sem Chromium, sem Firefox, sem dependência externa.
 
 ```text
-o usuário digita            servidor local (modem)                   janela do navegador
-─────────────────           ─────────────────────────────          ─────────────────────
-"Navegador" no dock   →     /api/fetch?url=…                  →    htmltext.js
-ou `browse site.com`        ├─ política de destino (SSRF)          ├─ título / linhas / links
-                            ├─ DNS validado por salto              ├─ segmentos clicáveis
-                            ├─ redirects seguidos à mão (≤5)       ├─ histórico ← →
-                            ├─ 2 MiB texto · 8 MiB bruto           └─ "Salvar" → ~/Downloads (VMFS)
-                            └─ timeout de 15 s
+endereço digitado
+      │
+      ├─ /api/fetch ─────────── política anti-SSRF no servidor (js/core/fetchpolicy.js)
+      │                          ├─ esquema, portas, nomes locais, IP privado (IPv4/IPv6)
+      │                          ├─ DNS validado antes E depois de resolver
+      │                          ├─ redirects seguidos à mão (≤5, validados por salto)
+      │                          └─ tetos: 2 MiB texto · 8 MiB bruto · 15 s
+      │
+      ├─ HTML ────────────────── DOMParser (dados, nunca código: nada de JS de página)
+      ├─ CSS externo ─────────── até 8 folhas, 512 KB cada; falha = nota visível, não tela branca
+      │
+      ├─ js/core/css.js ──────── cascata: especificidade, herança, shorthands, @media, style=""
+      ├─ js/core/layout.js ───── caixas: margem/padding/borda, fluxo inline com quebra e medição
+      ├─ js/apps/gfx/images.js ─ bytes → bitmap (createImageBitmap, com queda para Image)
+      └─ js/apps/gfx/paint.js ── canvas 2D com culling + hit-test dos links
 ```
 
-Se um endereço falhar, o motivo vem da rede e aparece escrito na tela (`ECONNRESET`, DNS, certificado,
-tempo esgotado). Em rede restrita (empresa, escola, sandbox de preview), só saem os destinos que a
-sua rede libera — a interface mostra a razão exata, nunca uma tela branca.
+| Recurso | Estado | Detalhe |
+|---|---|---|
+| Motor de renderização | funcional | CSS com cascata e herança, layout de blocos e inline, listas, tabelas, `inline-block`, imagens, cores, fontes, negrito/itálico/sublinhado |
+| Pintura | funcional | canvas 2D, culling do que está fora da tela, zoom de 60% a 250%, rolagem por roda/arrastar/teclado |
+| Links | funcional | hit-test por palavra com cursor `pointer`; a barra de estado mostra o destino ao passar o mouse |
+| Modo texto | funcional | um clique alterna para o motor de texto (`htmltext.js`) — mesma página, sem pintura, útil em rede lenta |
+| Imagens | funcional | até 24 por página, 3 MB cada, 8 s por imagem; falha de uma não derruba a página |
+| Página inicial | funcional | `about:inicio` — **local, zero requisições**, com o próprio CSS do sistema |
+| Salvar | funcional | grava a página/recurso em `~/Downloads` pelo mesmo instalador (aparece em Arquivos e no `ls`) |
+| JavaScript da página | **não executa** | HTML é tratado como dado. `<script>` é contado e reportado nas notas |
+| Flex/Grid/float/position | **não implementa** | caem no fluxo de blocos/inline — o conteúdo continua visível e clicável |
+| iframe, vídeo, SVG inline, WebGL/canvas de página | **não renderiza** | cada ocorrência vira uma nota com a contagem real |
 
-Limites declarados, para ninguém se surpreender: páginas acima de 2 MiB são recortadas em 4000
-linhas (com aviso na tela, não em silêncio); downloads acima de 8 MiB são recusados com o tamanho
-real informado; e a checagem de IP acontece antes da conexão, então **DNS rebinding** não é
-eliminado por completo — a mitigação é a de sempre: este servidor é de uso local, não exponha a
-porta na internet. Se a sua rede exigir uma CA própria (proxy corporativo), suba o servidor com
-`NODE_EXTRA_CA_CERTS=/caminho/ca.crt node server.js` — mecanismo padrão do Node, sem gambiarra.
+O botão **notas** mostra, com números reais, tudo o que a página pediu e o motor não faz —
+por exemplo: `1 <script> ignorado(s)`, `1 iframe(s) ignorado(s)`, `folha dark.css não carregou
+(ECONNRESET)`. É a mesma regra do resto do projeto: nada desaparece em silêncio.
+
+### Sobre "instalar o Firefox ou o Chromium nele"
+
+Resposta honesta, em três níveis — os três foram verificados nesta máquina de
+desenvolvimento, não são opinião:
+
+**1. Rodar o Firefox/Chromium *dentro* do PC virtual.** Um navegador é um programa Linux:
+precisa do runtime real (fase F4, `docs/00-arquitetura.md` §6.1) e das bibliotecas do sistema.
+Tentamos de verdade: baixamos um Chromium de código aberto empacotado para Linux x64
+(`@sparticuz/chromium`, 67 MB, Apache-2.0) e executamos — o binário morre com
+`error while loading shared libraries: libnspr4.so`. Instalar essas bibliotecas exige `apt`
+alcançando um espelho Debian, que não está acessível aqui (`Connection failed` em
+`deb.debian.org`). Ou seja: a peça que falta é o runtime + bibliotecas, exatamente o que a F4
+resolve — e não um problema de vontade.
+
+**2. Emular um PC x86 inteiro no navegador e bootar Linux nele (v86).** É a rota tecnicamente
+correta para "Linux de verdade no navegador": o emulador `v86` existe, é BSD-2-Clause, tem
+Wasm de 1,9 MB e versões publicadas no GitHub. O que **não** existe publicamente (nos hosts que
+este ambiente alcança) é a imagem de disco de Linux — as imagens de build do v86 ficam no
+`copy.sh`, fora da lista de rede permitida. Sem imagem não há boot, e sem navegador aqui não
+haveria como validar o boot — só afirmá-lo. Este projeto não faz afirmação de capacidade
+não testada, então a rota fica documentada e não alegada.
+
+**3. Um navegador open-source em WebAssembly, autocontido.** Também não existe: buscamos no
+registro npm por NetSurf, Dillo, w3m e "html rendering engine wasm" — zero resultados. Não é um
+esquema que ficou de fora: **não há navegador open-source publicado em Wasm** para embutir.
+
+O que existe, então, é o que está aqui: um motor próprio. Ele desenha páginas reais. Não é o
+Firefox — e a interface diz isso em cada página, com números, em vez de se chamar de Firefox.
+
+### Ver o motor funcionando fora do navegador
+
+```sh
+node tools/render-site.mjs https://github.com/explore   # roda o pipeline numa URL real
+node tools/render-site.mjs --local                      # página inicial do sistema (sem rede)
+```
+
+O utilitário mostra cada etapa medida (busca, folhas de estilo, layout, pintura), imprime as
+notas e desenha um **retrato em texto** do que seria pintado no canvas.
 
 ## O que muda em preview embutido (iframe de terceiros)
 
@@ -186,7 +210,8 @@ Regra: nada é simulado para parecer que funciona. O que não existe aparece com
 | Terminal | funcional | shell sobre o VFS (`ls`, `cd`, `cat`, `write`, `rm`, `df`, `sysctl`, `bench`, `top`, `uname`), com caminhos normalizados e recusa de nomes hostis |
 | Gerenciador de arquivos | funcional | navegação, criação, remoção, renomeação no mesmo VFS do terminal |
 | Sistema de arquivos (VFS) | funcional | OPFS com `SyncAccessHandle` quando disponível, degradando para `createWritable` e para memória volátil — o backend em uso aparece na interface |
-| Navegador (modo texto) | funcional | busca pelo servidor local com política anti-SSRF, HTML → texto com links clicáveis, histórico voltar/avançar, salvar em `~/Downloads`; declara na interface que **não** é um motor gráfico |
+| Navegador (motor próprio) | funcional | busca pelo proxy com política anti-SSRF, CSS externo, layout de blocos/inline, imagens, pintura em canvas, links clicáveis por hit-test, zoom, rolagem e modo texto; declara em notas tudo o que não renderiza |
+| Motor de CSS e layout | funcional | cascata com especificidade/herança/shorthands/`@media`, caixas com margem-padding-borda, fluxo inline com medição real e quebra por palavra (`js/core/css.js`, `js/core/layout.js`) |
 | Instalador de arquivos | funcional | arrastar-e-soltar, paleta, janela Arquivos e `install` no terminal; sanitização de nome, colisão sem sobrescrita, cota checada antes da escrita |
 | Motor de mundo aberto | funcional | ECS SoA com passo fixo de 120 Hz, física de seguimento de faixa, IA de tráfego, snapshot binário, cena 3D em WebGL2 |
 | Telemetria (HUD) | funcional | FPS, P50/P95 de quadro, custo por worker, MB/s de I/O, entidades, ticks, transporte IPC |
@@ -219,6 +244,7 @@ matriz de falha → resposta e roadmap:
 npm test               # núcleo + interface, sem navegador e sem rede
 npm run test:core      # IPC (bytes, wrap, drops), VFS real sobre worker_threads, seqlock, grafo de imports
 npm run test:ui        # DOM real via jsdom: boot, window manager, HUD, toasts, boot degradado
+npm run test:engine    # motor do navegador: cascata, layout, pintura (contexto que grava), pipeline
 npm run test:browser   # Playwright/Chromium — exige `npx playwright install chromium`
 ```
 
@@ -246,6 +272,9 @@ css/tokens.css      tokens do design system (fonte única de verdade)
 css/os.css          contrato visual de todos os componentes
 js/core/            ipc · link · wire · snapshot · vfs · vfs-local · import · fetchpolicy · htmltext · geom · wm · bus · util · mat4
 server/             fetch-route.js (rota /api/fetch do navegador do sistema)
+js/apps/gfx/        paint.js (canvas + hit-test) · images.js (bytes → bitmap)
+js/core/            + css.js (cascata) · layout.js (caixas) · srcpage.js (HTML+CSS+imagens)
+tools/              render-site.mjs (roda o motor contra uma URL real, com retrato em texto)
 js/ui/              hud · toast · icons
 js/apps/            terminal · browser · files · game · settings
 js/boot.js          boot + sondagem real de capacidades do navegador
