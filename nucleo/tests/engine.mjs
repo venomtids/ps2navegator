@@ -670,13 +670,14 @@ function glFalso() {
     bufferSubData() {},
     useProgram() {}, uniformMatrix4fv() {}, uniform3f() {}, uniform1i() {},
     uniform1f() {}, uniform2f() {},
-    viewport() {}, clearColor() {}, clear() {}, enable() {},
+    viewport() {}, clearColor() {}, clear() {}, enable() {}, disable() {},
     cullFace() {}, frontFace() {},
     enableVertexAttribArray: i => ativos.add(i),
     vertexAttribPointer: (i, size, tipo, norm, stride, offset) => {
       atributos.set(i, { buf: ligado, stride, size, offset });
     },
     vertexAttribDivisor() {},
+    disableVertexAttribArray: i => ativos.delete(i),
     drawArrays: () => { chamadas.simples++; },
     drawArraysInstanced: (modo, first, count, instancias) => {
       chamadas.instanciadas.push({ first, count, instancias });
@@ -714,7 +715,7 @@ await test('WebGL2: a chamada instanciada pede exatamente os vértices que o buf
     assert.ok(inst.length > 4, `chamadas instanciadas por vários quadros: ${inst.length}`);
     assert.ok(inst.every(c => c.count === 24), `toda chamada usa as 6 faces (24 vértices): ${inst.map(c => c.count)}`);
     assert.ok(inst.every(c => c.instancias > 500), `instâncias da cidade por quadro: ${inst.at(-1).instancias}`);
-    assert.ok(gl.chamadas.simples > 4, 'o chão é desenhado a cada quadro');
+    assert.ok(gl.chamadas.simples > 8, `céu e chão são desenhados a cada quadro (${gl.chamadas.simples} em ~7 quadros)`);
     assert.equal(gl.chamadas.instanciadas.at(-1).instancias, app.stats.instances, 'a contagem do HUD é a contagem desenhada');
     // controle negativo: com 48 vértices a validação acusa — o teste não é vazio
     assert.equal(gl.verificarDefeitoArtificial(48), true, 'a validação precisa acusar um count fora da faixa');

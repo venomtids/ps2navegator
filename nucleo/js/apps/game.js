@@ -312,6 +312,7 @@ export function createGame({ canvas, engine, settings, os, toast, camera = null,
         ground: subirBuffer(gl, new Float32Array([-1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1]), gl.STATIC_DRAW, 6),
         scene: compilarPrograma(gl, VS_SCENE, FS_SCENE),
         groundProg: compilarPrograma(gl, VS_GROUND, FS_GROUND),
+        ceu: compilarPrograma(gl, VS_CEU, FS_CEU),      // mesmo quad do chão
         instBuf: gl.createBuffer()
       };
       gl.bindBuffer(gl.ARRAY_BUFFER, rec.instBuf);
@@ -450,6 +451,20 @@ export function createGame({ canvas, engine, settings, os, toast, camera = null,
     gl.cullFace(gl.BACK);
     gl.frontFace(gl.CCW);                 // contrato explícito com makeCubeData()
 
+    // Céu primeiro, sem teste nem escrita de profundidade: um quad em NDC cobre a
+    // tela e o gradiente usa os MESMOS números que o caminho software (CEU_RGB,
+    // HORIZONTE_RGB). Sem este desenho, o WebGL mostraria `clearColor` chapado e os
+    // dois caminhos não seriam a mesma cena.
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(rec.ceu);
+    gl.uniform3f(rec.ceu.u.uTopo, CEU_RGB[0], CEU_RGB[1], CEU_RGB[2]);
+    gl.uniform3f(rec.ceu.u.uHorizonte, HORIZONTE_RGB[0], HORIZONTE_RGB[1], HORIZONTE_RGB[2]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, rec.ground.buf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, rec.ground.count);
+    gl.enable(gl.DEPTH_TEST);
+
     gl.useProgram(rec.groundProg);
     gl.uniformMatrix4fv(rec.groundProg.u.uVP, false, vp);
     gl.uniform1f(rec.groundProg.u.uScale, CHAO_LADO / 2);
@@ -474,7 +489,10 @@ export function createGame({ canvas, engine, settings, os, toast, camera = null,
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 0); gl.vertexAttribDivisor(2, 1);
     gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(3, 1);
     if (instances) gl.drawArraysInstanced(gl.TRIANGLES, 0, rec.cube.count, instances);
-    drawCalls = 2;
+    // Atributos instanciados ficam desligados ao fim do quadro: o próximo começa pelo
+    // céu e pelo chão, que não os consomem.
+    gl.disableVertexAttribArray(2); gl.disableVertexAttribArray(3);
+    drawCalls = 3;
     const erro = gl.getError();
     if (erro !== gl.NO_ERROR) throw new Error(`WebGL2 reportou erro ${erro} durante o desenho`);
   }
