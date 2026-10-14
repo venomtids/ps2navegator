@@ -348,6 +348,35 @@ estágios, com fronteiras de responsabilidade explícitas.
 - **Culling na pintura:** só o que está na viewport (com margem de 64 px) é desenhado — é o que
   mantém a rolagem barata em páginas de 20 mil itens de layout.
 
+### 6.2.2.1 Falha de rede tem que ser visível, e o limite tem que ser medido
+
+Relato que originou esta seção: *"o navegador não funciona"*. Duas causas reais, ambas silenciosas:
+
+1. **A mensagem de erro só existia no painel de texto** (`mostrarErro` escrevia em `textoView`),
+   que fica `display:none` no modo gráfico — o padrão. O usuário via canvas vazio e uma linha
+   discreta no rodapé. Correção: no modo gráfico o motivo é **pintado no canvas** (Sutherland de
+   linhas por `measureText`), com faixa vermelha, URL, motivo exato e o atalho para `about:rede`.
+   Sem contexto 2D, o erro força o modo texto — porque tela vazia com mensagem escondida não é
+   resposta em nenhum contexto.
+2. **A própria página inicial oferecia um exemplo que não responde** (`pt.wikipedia.org`), e a rede
+   deste ambiente só alcança GitHub/npm/PyPI. Exemplo que quebra sem explicação não é exemplo.
+
+O limite é real e é da **rede**, não do motor: o proxy roda no servidor, e o que o servidor não
+alcança, o navegador não carrega. Por isso existe `/api/probe` — lista **fixa** de destinos (não é
+scanner de portas), cada um com `Range: bytes=0-1023`, 6 s de teto e as mesmas guardas do
+`/api/fetch`. A página `about:rede` mostra a tabela medida (✓ 200 em 812 ms / ✗ ECONNRESET) e diz
+de quem é o limite. Medido neste ambiente:
+
+| Destino | Resultado |
+|---|---|
+| github.com · registry.npmjs.org · pypi.org | ✓ 200/206, 35–819 ms |
+| example.com · google.com · pt.wikipedia.org | ✗ `fetch failed · ECONNRESET` |
+
+**Páginas locais** (`about:inicio`, `about:teste`, `about:rede`) existem para o motor ser
+demonstrável **sem depender de rede**: `about:teste` exercita cabeçalhos, listas, tabela, itálico e
+um `display:flex` de propósito — para a ocorrência virar nota visível em vez de desaparecer.
+
+
 **Orçamento medido nesta máquina** (página do GitHub, 412 KB de HTML, sem CSS alcançável):
 2211 itens de layout, 535 caixas, 856 linhas, 1072 hitboxes de link, **76 ms de layout** e
 **1,1 ms de pintura** do primeiro quadro. Números medidos, não estimados.

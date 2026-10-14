@@ -114,7 +114,10 @@ endereço digitado
 | Links | funcional | hit-test por palavra com cursor `pointer`; a barra de estado mostra o destino ao passar o mouse |
 | Modo texto | funcional | um clique alterna para o motor de texto (`htmltext.js`) — mesma página, sem pintura, útil em rede lenta |
 | Imagens | funcional | até 24 por página, 3 MB cada, 8 s por imagem; falha de uma não derruba a página |
-| Página inicial | funcional | `about:inicio` — **local, zero requisições**, com o próprio CSS do sistema |
+| Página inicial | funcional | `about:inicio` — **local, zero requisições**: hub com o que o motor faz, o que não faz e os exemplos que **esta** rede alcança |
+| Páginas locais | funcional | `about:teste` (demonstração do motor: cabeçalhos, listas, citação, tabela, `.flex` que vira nota) e `about:rede` (o que a rede alcança), ambas sem tocar na internet |
+| Falha de rede | **visível** | o motivo é pintado **no canvas** (título, URL, `motivo: ECONNRESET`, como resolver, faixa vermelha) e vai para as notas; sem contexto 2D o app troca para o modo texto |
+| Botão **Rede** | funcional | sonda a lista fixa em `/api/probe` e resume: `sondagem: 3/6 destinos responderam · 3 bloqueados por esta rede` |
 | Salvar | funcional | grava a página/recurso em `~/Downloads` pelo mesmo instalador (aparece em Arquivos e no `ls`) |
 | JavaScript da página | **não executa** | HTML é tratado como dado. `<script>` é contado e reportado nas notas |
 | Flex/Grid/float/position | **não implementa** | caem no fluxo de blocos/inline — o conteúdo continua visível e clicável |
@@ -123,6 +126,25 @@ endereço digitado
 O botão **notas** mostra, com números reais, tudo o que a página pediu e o motor não faz —
 por exemplo: `1 <script> ignorado(s)`, `1 iframe(s) ignorado(s)`, `folha dark.css não carregou
 (ECONNRESET)`. É a mesma regra do resto do projeto: nada desaparece em silêncio.
+
+### O que **esta** rede alcança (medido, não estimado)
+
+O motor fala com a internet por um único ponto, o proxy `/api/fetch` do servidor. Se o **servidor**
+não alcança um host, o navegador não carrega a página — e a janela diz exatamente isso, com o motivo
+cru. Não é chute: o botão **Rede** mede (`/api/probe`, lista fixa de destinos, `Range: bytes=0-1023`,
+6 s por alvo) e a página `about:rede` mostra a tabela. Medição feita no ambiente de construção deste
+repositório:
+
+| Destino | Resultado |
+|---|---|
+| `github.com` | ✓ 200 |
+| `registry.npmjs.org` | ✓ 200 |
+| `pypi.org` | ✓ 206 |
+| `example.com`, `google.com`, `pt.wikipedia.org`, `globo.com` | ✗ `fetch failed · ECONNRESET` |
+
+Ou seja: **links como o da Wikipédia não abrem aqui, e isso não é bug do motor** — é a lista de hosts
+que esta máquina pode alcançar. A própria página inicial já não sugere exemplos que não respondem.
+Num computador comum, com rede aberta, os mesmos destinos respondem e o motor carrega normalmente.
 
 ### Sobre "instalar o Firefox ou o Chromium nele"
 

@@ -453,6 +453,103 @@ await test('pintura, hit-test de clique, notas, erro, modo texto e zoom', async 
   }
 });
 
+await test('falha de rede aparece PINTADA na tela (modo gráfico), não escondida no painel de texto', async () => {
+  // Esta é a regressão do relato "o navegador não funciona": a mensagem de erro só
+  // era escrita no painel de texto, que fica `display:none` no modo gráfico — o
+  // usuário via canvas vazio e uma linha discreta no rodapé. Agora o motivo vai
+  // para o canvas, onde o olho está.
+  const fetchOriginal = globalThis.fetch;
+  globalThis.fetch = async url => {
+    if (String(url).includes('bloqueado.example')) {
+      return { status: 200, ok: true, json: async () => ({ ok: false, url: 'https://bloqueado.example/x', error: 'falha de rede: fetch failed · ECONNRESET' }) };
+    }
+    return fakeFetch(url);
+  };
+  const app = createBrowser({ toast: { ok() {}, err() {}, warn() {}, push() {} }, os: {}, vfs: null });
+  try {
+    document.body.replaceChildren();
+    document.body.append(app.el);
+    app.onMount();
+    await sleep(30);
+    assert.equal(app.modo, 'grafico', 'o modo padrão é o gráfico — é nele que o erro precisa aparecer');
+
+    chamadas.length = 0;
+    await app.openUrl('https://bloqueado.example/x');
+    await sleep(60);
+
+    const textos = chamadas.filter(c => c[0] === 'fillText').map(c => c[1]).join(' | ');
+    assert.match(textos, /Não foi possível abrir/, `o erro precisa ser pintado no canvas: ${textos.slice(0, 120)}`);
+    assert.match(textos, /bloqueado\.example/, 'a URL que falhou precisa aparecer na pintura');
+    assert.match(textos, /ECONNRESET/, 'o motivo exato precisa aparecer na pintura');
+    assert.match(textos, /about:rede/, 'a pintura precisa indicar como descobrir o que a rede alcança');
+    assert.ok(chamadas.some(c => c[0] === 'fillRect' && c[5] === '#ff8a8a'), 'a faixa de erro precisa ser visível');
+    assert.match(app.el.querySelector('.bmeta').textContent, /erro/);
+    assert.ok(app._internals.notas().length >= 1, 'o motivo também entra nas notas — o painel deixa de ficar vazio durante um erro');
+
+    // E o erro não pode quebrar a navegação seguinte: voltar para uma página boa repinta.
+    chamadas.length = 0;
+    await app.openUrl('https://exemplo.org/');
+    await sleep(120);
+    const depois = chamadas.filter(c => c[0] === 'fillText').map(c => c[1]).join(' ');
+    assert.match(depois, /Notícias/, 'depois do erro, a navegação normal continua funcionando');
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    app.onClose?.();
+  }
+});
+
+await test('páginas locais: about:inicio, about:teste e about:rede funcionam com zero requisições', async () => {
+  const requisicoes = [];
+  const fetchOriginal = globalThis.fetch;
+  globalThis.fetch = async url => { requisicoes.push(String(url)); return fakeFetch(url); };
+  const app = createBrowser({ toast: { ok() {}, err() {}, warn() {}, push() {} }, os: {}, vfs: null });
+  try {
+    document.body.replaceChildren();
+    document.body.append(app.el);
+    app.onMount();
+    await sleep(30);
+    assert.equal(requisicoes.length, 0, 'a página inicial é local: nenhuma requisição');
+
+    chamadas.length = 0;
+    await app.openUrl('about:teste');
+    await sleep(40);
+    assert.equal(requisicoes.length, 0, 'about:teste também é local');
+    // O motor pinta por RUNS de inline (palavra a palavra), então a junção é sem
+    // separador: é assim que a linha aparece na tela.
+    const textos = chamadas.filter(c => c[0] === 'fillText').map(c => c[1]).join('');
+    assert.match(textos, /Teste do motor/, 'a demonstração precisa ser pintada');
+    assert.ok(app.stats.itens > 20, `a demonstração tem conteúdo real: ${app.stats.itens} itens`);
+    assert.ok(app.stats.links >= 1, 'ela precisa ter link de volta');
+
+    // A tabela está abaixo da dobra: a pintura tem culling (só desenha o visível),
+    // então o teste rola até o fim — o que também prova o repaint por teclado.
+    chamadas.length = 0;
+    const vista = app.el.querySelector('.bview');
+    vista.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    await sleep(40);
+    const fim = chamadas.filter(c => c[0] === 'fillText').map(c => c[1]).join('');
+    assert.match(fim, /Camada|Arquivo/, `depois de rolar, a tabela precisa ser pintada: ${fim.slice(0, 100)}`);
+
+    // about:rede sem sondagem: declara que nenhuma foi feita, em vez de tabela vazia mentirosa
+    chamadas.length = 0;
+    await app.openUrl('about:rede');
+    await sleep(40);
+    const rede = chamadas.filter(c => c[0] === 'fillText').map(c => c[1]).join('');
+    assert.match(rede, /O que esta rede alcança/);
+    assert.match(rede, /Nenhuma sondagem|Rede/, 'sem sondagem, a página diz que nada foi medido');
+
+    // about: desconhecido vira erro declarado com a lista do que existe
+    await app.openUrl('about:nao-existe');
+    await sleep(40);
+    const erro = chamadas.filter(c => c[0] === 'fillText').map(c => c[1]).join('');
+    assert.match(erro, /desconhecida/);
+    assert.match(erro, /about:inicio/);
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    app.onClose?.();
+  }
+});
+
 await test('nome de arquivo e modo de degradação do app (sem canvas) não quebram', () => {
   assert.equal(nomeDeArquivo('https://s.com/d/relatorio.pdf', 'application/pdf'), 'relatorio.pdf');
   assert.equal(nomeDeArquivo('https://s.com/f/foto%20b.jpg', 'image/jpeg'), 'foto_b.jpg');

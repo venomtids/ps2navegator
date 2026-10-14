@@ -213,6 +213,32 @@ destino à barra de status sem tooltip flutuante — informação onde o olho j�
 com a classe `.busy` (acento) em vez de exibir uma animação de carregamento que não corresponde a
 progresso real. Sem progresso medido, sem indicador de progresso.
 
+#### 6.13.1 Página de erro (o estado que não pode ser invisível)
+
+| Elemento | Tratamento | Regra |
+|---|---|---|
+| Fundo | `#0a0f16` (mesmo das páginas locais do sistema) | o erro é do sistema, não do site: a cor diz isso |
+| Faixa lateral | 4 px, `#ff8a8a`, altura total | visível antes de qualquer leitura |
+| Título | `600 17px sans`, `--amber` | "Não foi possível abrir" — frase, não código |
+| URL | `12.5px monospace`, `--ink-2` | o endereço exato, com o esquema |
+| Motivo | `13px sans`, `--ink` | a string crua da rede (`ECONNRESET`, `tempo esgotado (6000 ms)`) — nunca "algo deu errado" |
+| Rodapé | `--ink-3` + acento `--neon` | como resolver: `about:rede` para medir o que a rede alcança |
+| Painel `notas` | recebe a mesma mensagem | o botão de notas deixa de ficar vazio justamente quando há o que dizer |
+
+O mesmo conteúdo aparece no modo texto (DOM) e, sem contexto 2D, o app **troca para o modo texto**
+automaticamente, porque é o único caminho em que a mensagem é visível.
+
+#### 6.13.2 Páginas locais e a sondagem de rede
+
+- `about:inicio` — hub: o que o motor faz, o que não faz, atalhos e os exemplos que **esta** rede
+  alcança (GitHub/npm), com o convite para medir em vez de tentar.
+- `about:teste` — demonstração do motor com zero requisições: cabeçalhos, listas, citação, tabela
+  `Camada/Arquivo/Papel`, negrito/itálico/código e um bloco `display:flex` que vira nota.
+- `about:rede` — tabela medida por `/api/probe`: ✓/✗ por destino, com `status` e milissegundos; sem
+  sondagem feita, a página diz que nada foi medido em vez de mostrar tabela vazia.
+- Botão **Rede** na barra dispara a sondagem e resume em uma frase: `sondagem: 3/6 destinos
+  responderam · 3 bloqueados por esta rede`.
+
 ### 6.14 Cidade (motor 3D)
 
 A janela é um viewport, não um painel: o cromo é o mínimo possível e o que sobra é

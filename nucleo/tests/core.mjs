@@ -25,7 +25,7 @@ import { safePath, fmtBytes, Histogram, clamp, baseName } from '../js/core/util.
 import { probeCapabilities } from '../js/boot.js';
 import { installFiles, sanitizeName, describeInstall, INSTALL_DIR } from '../js/core/import.js';
 import { checkTarget, checkResolvedAddresses, expandV6, isPrivateV6, MAX_TEXT_BYTES } from '../js/core/fetchpolicy.js';
-import { createFetchRoute } from '../server/fetch-route.js';
+import { createFetchRoute, createProbeRoute, ALVOS_DE_SONDAGEM } from '../server/fetch-route.js';
 
 let passed = 0, failed = 0;
 const results = [];
@@ -1198,6 +1198,66 @@ await test('expandV6/checkResolvedAddresses cobrem as formas de loopback', () =>
   }
   assert.equal(checkResolvedAddresses([{ address: '::1' }]).ok, false);
   assert.equal(checkResolvedAddresses([{ address: '2606:4700::1111' }]).ok, true);
+});
+
+await test('sondagem de rede diz o que responde e o que não responde, sem derrubar o resto', async () => {
+  const chamadas = [];
+  const recursos = async (url, { fetchImpl, lookup } = {}) => {
+    const route = createProbeRoute({
+      fetchImpl: fetchImpl || (async u => { chamadas.push(u); return fakeResponse({ status: 200 }); }),
+      lookup: lookup || (async () => [{ address: '93.184.216.34', family: 4 }])
+    });
+    return await new Promise(resolve => {
+      const req = { method: 'GET', url };
+      const res = { writeHead(st) { this.status = st; }, end(body) { resolve(JSON.parse(body.toString())); } };
+      route(req, res, (r, st, h, b) => { r.writeHead(st); r.end(b); });
+    });
+  };
+
+  // um alvo responde, outro falha com a causa real anexada (o caso do sandbox)
+  const comFalha = await recursos('/api/probe?alvos=github,google', {
+    fetchImpl: async u => {
+      if (u.includes('google')) { const e = new Error('fetch failed'); e.cause = { code: 'ECONNRESET' }; throw e; }
+      return fakeResponse({ status: 200 });
+    },
+    lookup: async (host) => (host === 'www.google.com' ? [{ address: '142.250.79.14', family: 4 }] : [{ address: '140.82.112.3', family: 4 }])
+  });
+  assert.equal(comFalha.ok, true);
+  assert.equal(comFalha.hosts.length, 2);
+  const [gh, g] = comFalha.hosts;
+  assert.equal(gh.chave, 'github');
+  assert.equal(gh.ok, true);
+  assert.equal(gh.status, 200);
+  assert.ok(Number.isFinite(gh.ms), 'tempo medido, não estimado');
+  assert.equal(g.ok, false);
+  assert.match(g.error, /ECONNRESET/, `a causa real precisa aparecer: ${g.error}`);
+
+  // DNS apontando para dentro bloqueia ANTES de qualquer requisição
+  let tocou = false;
+  const bloqueado = await recursos('/api/probe?alvos=exemplo', {
+    fetchImpl: async () => { tocou = true; return fakeResponse(); },
+    lookup: async () => [{ address: '10.0.0.7', family: 4 }]
+  });
+  assert.equal(bloqueado.hosts[0].ok, false);
+  assert.match(bloqueado.hosts[0].error, /privado|interna/);
+  assert.equal(tocou, false, 'destino privado não pode nem ser requisitado');
+
+  // tempo esgotado tem nome próprio, não "fetch failed"
+  const tempo = await recursos('/api/probe?alvos=npm', {
+    fetchImpl: async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
+  });
+  assert.match(tempo.hosts[0].error, /tempo esgotado/);
+
+  // lista fixa: alvo inventado é recusado (esta rota não é scanner de portas)
+  const inventado = await recursos('/api/probe?alvos=meu-servidor-interno');
+  assert.equal(inventado.ok, false);
+  assert.match(inventado.error, /alvos desconhecidos/);
+  assert.ok(ALVOS_DE_SONDAGEM.includes('github'), 'a lista fixa precisa existir e ser conhecida');
+
+  // sem parâmetro, sonda a lista inteira, e o corpo é lido com teto (Range)
+  const todos = await recursos('/api/probe');
+  assert.equal(todos.hosts.length, ALVOS_DE_SONDAGEM.length);
+  assert.ok(chamadas.length >= ALVOS_DE_SONDAGEM.length);
 });
 
 section('18 · módulos (grafo de importação íntegro e carga sem DOM)');

@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createFetchRoute } from './server/fetch-route.js';
+import { createFetchRoute, createProbeRoute } from './server/fetch-route.js';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const PORT = Number(process.env.PORT || 3400);
@@ -129,6 +129,8 @@ function send(res, status, headers, body) {
  * exponha este servidor na internet aberta (README).
  */
 const handleFetch = createFetchRoute();
+/** Sondagem de rede do navegador do sistema (`/api/probe`) — lista fixa de alvos. */
+const handleProbe = createProbeRoute();
 
 const server = createServer(async (req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -137,6 +139,7 @@ const server = createServer(async (req, res) => {
 
   try {
     if (await handleFetch(req, res, send)) return;
+    if (await handleProbe(req, res, send)) return;
   } catch (e) {
     console.error('[fetch]', e);
     return send(res, 500, { 'Content-Type': 'application/json; charset=utf-8' },

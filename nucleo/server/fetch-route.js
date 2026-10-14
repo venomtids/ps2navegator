@@ -178,3 +178,89 @@ export function createFetchRoute({ fetchImpl = globalThis.fetch, lookup = dnsLoo
     return true;
   };
 }
+
+/**
+ * NÚCLEO OS — rota `/api/probe`: "quais destes hosts respondem daqui?"
+ *
+ * Existe porque a resposta honesta para "o navegador não abre nada" não pode ser
+ * silêncio: em rede restrita (escola, empresa, *sandbox*) só uma parte da internet
+ * responde, e o usuário precisa saber **quais** — com número, não com desculpa.
+ *
+ * Limites de propósito:
+ *  - a lista de alvos é FIXA (chaves conhecidas), então esta rota não é scanner de
+ *    portas nem proxy de URL arbitrária — isso é o trabalho de `/api/fetch`, com as
+ *    guardas dele;
+ *  - cada alvo passa pela MESMA política (`checkTarget` + checagem de DNS);
+ *  - o corpo é lido com `Range: bytes=0-1023`, então não se baixa página inteira só
+ *    para saber se o host responde;
+ *  - falha de um alvo não derruba os outros.
+ */
+const ALVOS = {
+  github: 'https://github.com/',
+  npm: 'https://registry.npmjs.org/',
+  pypi: 'https://pypi.org/',
+  exemplo: 'https://example.com/',
+  google: 'https://www.google.com/',
+  wikipedia: 'https://pt.wikipedia.org/'
+};
+export const ALVOS_DE_SONDAGEM = Object.keys(ALVOS);
+const PROBE_TIMEOUT_MS = 6000;
+
+export function createProbeRoute({ fetchImpl = globalThis.fetch, lookup = dnsLookup } = {}) {
+  return async function handleProbe(req, res, send) {
+    const parsed = new URL(req.url || '/', 'http://localhost');
+    if (parsed.pathname !== '/api/probe') return false;
+
+    const pedidos = (parsed.searchParams.get('alvos') || '').split(',').map(s => s.trim()).filter(Boolean);
+    const chaves = pedidos.length ? pedidos.filter(k => Object.hasOwn(ALVOS, k)) : ALVOS_DE_SONDAGEM;
+    if (!chaves.length) {
+      return send(res, 400, { 'Content-Type': 'application/json; charset=utf-8' },
+        JSON.stringify({ ok: false, error: `alvos desconhecidos (disponíveis: ${ALVOS_DE_SONDAGEM.join(', ')})` })), true;
+    }
+
+    const hosts = [];
+    for (const chave of chaves) {
+      const url = ALVOS[chave];
+      const t0 = Date.now();
+      const check = checkTarget(url);
+      if (!check.ok) { hosts.push({ chave, url, ok: false, error: check.reason, ms: 0 }); continue; }
+      try {
+        const target = new URL(url);
+        let resolved = [];
+        try { resolved = await lookup(target.hostname, { all: true }); } catch { resolved = []; }
+        const dnsCheck = checkResolvedAddresses(resolved);
+        if (!dnsCheck.ok) { hosts.push({ chave, url, ok: false, error: dnsCheck.reason, ms: Date.now() - t0 }); continue; }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+        let response;
+        try {
+          response = await fetchImpl(url, {
+            redirect: 'follow',
+            signal: controller.signal,
+            headers: {
+              'user-agent': 'NucleoOS/0.1 (+sondagem de rede; local)',
+              range: 'bytes=0-1023',
+              accept: '*/*'
+            }
+          });
+        } finally { clearTimeout(timer); }
+
+        // Drena o corpo (com teto) para não deixar socket pendurado; o conteúdo em
+        // si não interessa, só o fato de o host ter respondido.
+        try { await readCapped(response, 4096); } catch { /* corpo irrelevante aqui */ }
+        hosts.push({ chave, url, ok: true, status: response.status, ms: Date.now() - t0 });
+      } catch (e) {
+        const causa = e?.cause?.code || e?.cause?.message;
+        const motivo = e?.name === 'AbortError'
+          ? `tempo esgotado (${PROBE_TIMEOUT_MS} ms)`
+          : [String(e?.message || e), causa].filter(Boolean).join(' · ');
+        hosts.push({ chave, url, ok: false, error: motivo, ms: Date.now() - t0 });
+      }
+    }
+
+    send(res, 200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      JSON.stringify({ ok: true, quando: Date.now(), hosts }));
+    return true;
+  };
+}

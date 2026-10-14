@@ -40,7 +40,7 @@ const { createToasts } = await import('../js/ui/toast.js');
 const { createHUD } = await import('../js/ui/hud.js');
 const { createBus } = await import('../js/core/bus.js');
 const { renderPage, pageToText, resolveUrl } = await import('../js/core/htmltext.js');
-const { createBrowser, fileNameFrom } = await import('../js/apps/browser.js');
+const { createBrowser, fileNameFrom, paginaRede, PAGINAS_LOCAIS, PAGINA_TESTE } = await import('../js/apps/browser.js');
 const { createTerminal } = await import('../js/apps/terminal.js');
 const { fmt1 } = await import('../js/core/util.js');
 
@@ -463,6 +463,112 @@ await test('com ambiente capaz: aceita ISO de verdade, recusa lixo e declara a f
     assert.match(document.querySelector('.jogos .card').textContent, /Não foi possível iniciar|Falha/,
       'o cartão precisa explicar a falha em vez de deixar uma tela preta');
   } finally { await jogos.onClose(); }
+});
+
+// ------------------------------------------------- rede e páginas locais -----
+
+section('navegador: páginas locais e sondagem de rede (o que "não funciona" precisa dizer)');
+
+await test('paginaRede monta a tabela real da sondagem e escapa o texto', () => {
+  const html = paginaRede({
+    quando: Date.UTC(2026, 9, 14, 12, 0, 0),
+    hosts: [
+      { chave: 'github', url: 'https://github.com/', ok: true, status: 200, ms: 812 },
+      { chave: 'google', url: 'https://www.google.com/', ok: false, error: 'fetch failed · ECONNRESET', ms: 5 }
+    ]
+  });
+  assert.match(html, /github\.com/);
+  assert.match(html, /respondeu 200 em 812 ms/, 'número medido, não estimado');
+  assert.match(html, /ECONNRESET/, 'o motivo real do bloqueio precisa estar na página');
+  assert.match(html, /class="ok"/);
+  assert.match(html, /class="ruim"/);
+  assert.match(html, /não é falha do navegador/i, 'a página precisa dizer de quem é o limite');
+
+  // sem sondagem: declara que nada foi medido em vez de mostrar tabela vazia
+  const vazia = paginaRede(null);
+  assert.match(vazia, /Nenhuma sondagem/);
+  assert.ok(!/ECONNRESET/.test(vazia));
+
+  // o texto vem de terceiros: precisa ser escapado, nunca injetado como HTML
+  const cru = paginaRede({ hosts: [{ chave: 'x', url: 'https://x/<script>alert(1)</script>', ok: false, error: '<img onerror=1>', ms: 1 }] });
+  assert.ok(!cru.includes('<script>'), 'URL de terceiro não pode virar marcação');
+  assert.ok(!cru.includes('<img onerror'), 'mensagem de erro não pode virar marcação');
+  assert.match(cru, /&lt;script&gt;/);
+});
+
+await test('o botão Rede sonda o servidor e abre about:rede com o resultado', async () => {
+  const host = fresh();
+  const pedidos = [];
+  const fetchAntes = globalThis.fetch;
+  globalThis.fetch = async url => {
+    pedidos.push(String(url));
+    if (String(url).startsWith('/api/probe')) {
+      return {
+        status: 200, ok: true,
+        json: async () => ({
+          ok: true, quando: Date.now(),
+          hosts: [
+            { chave: 'github', url: 'https://github.com/', ok: true, status: 200, ms: 700 },
+            { chave: 'wikipedia', url: 'https://pt.wikipedia.org/', ok: false, error: 'fetch failed · ECONNRESET', ms: 40 }
+          ]
+        })
+      };
+    }
+    throw new Error(`pedido inesperado: ${url}`);
+  };
+  const app = createBrowser({ toast: { ok() {}, err() {}, warn() {}, push() {} }, os: {}, vfs: null });
+  try {
+    host.append(app.el);
+    app.onMount();
+    await sleep(20);
+    const btnRede = [...app.el.querySelectorAll('.bar .btn')].find(b => b.textContent.trim() === 'Rede');
+    assert.ok(btnRede, 'a barra precisa ter o botão Rede');
+    btnRede.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(80);
+
+    assert.ok(pedidos.some(u => u.startsWith('/api/probe')), 'o botão precisa perguntar ao servidor');
+    assert.equal(app.url, 'about:rede', 'a sondagem abre a página de rede');
+    // jsdom não tem canvas 2D: a prova aqui é o estado e as notas (a pintura é
+    // provada em tests/engine.mjs, com contexto que grava)
+    const notas = app._internals.notas().join(' | ');
+    assert.match(notas, /github: respondeu 200 em 700 ms/, `notas por destino: ${notas}`);
+    assert.match(notas, /wikipedia: fetch failed · ECONNRESET/);
+    assert.match(app.el.querySelector('.bmeta').textContent, /1\/2 destinos responderam|sondagem/);
+  } finally {
+    globalThis.fetch = fetchAntes;
+    app.onClose?.();
+  }
+});
+
+await test('about:teste é a prova local do motor: renderiza sem uma única requisição', async () => {
+  const host = fresh();
+  const pedidos = [];
+  const fetchAntes = globalThis.fetch;
+  globalThis.fetch = async url => { pedidos.push(String(url)); throw new Error('não deveria pedir nada'); };
+  const app = createBrowser({ toast: { ok() {}, err() {}, warn() {}, push() {} }, os: {}, vfs: null });
+  try {
+    host.append(app.el);
+    app.onMount();
+    await sleep(20);
+    assert.deepEqual(pedidos, [], 'a página inicial é local');
+    assert.ok(PAGINAS_LOCAIS['about:teste']().includes('Teste do motor'));
+    assert.ok(PAGINA_TESTE.includes('display:flex'), 'a demonstração inclui algo que o motor NÃO faz, para virar nota');
+
+    app.openUrl('about:teste');
+    await sleep(60);
+    assert.equal(app.url, 'about:teste');
+    assert.ok(app.stats.itens > 20, `o layout da demonstração precisa ter conteúdo: ${app.stats.itens}`);
+    assert.ok(app.stats.links >= 1, 'precisa ter link de volta');
+    assert.deepEqual(pedidos, [], 'nem a demonstração pode tocar a rede');
+    // a página local desconhecida é erro declarado, com a lista do que existe
+    app.openUrl('about:sei-la');
+    await sleep(40);
+    assert.match(app.el.querySelector('.btext').textContent, /desconhecida/);
+    assert.match(app.el.querySelector('.btext').textContent, /about:teste/);
+  } finally {
+    globalThis.fetch = fetchAntes;
+    app.onClose?.();
+  }
 });
 
 // ------------------------------------------------------------- navegador -----
