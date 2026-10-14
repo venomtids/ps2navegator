@@ -174,7 +174,7 @@ teto de FPS.
 snapshot do w-engine (x, z, vx, vz, velocidade, tipo)
    → buffer de instâncias pré-alocado (8 192 × 8 floats, zero alocação por quadro)
    → projeção (js/core/mat4.js) → câmera livre (arrastar + WASD + Shift)
-   → WebGL2: 2 chamadas de desenho (céu com gradiente, chão procedural, cidade/tráfego instanciados)
+   → WebGL2: 3 chamadas de desenho — céu com gradiente, chão procedural e cidade/tráfego instanciados
    │  ou, sem WebGL2, contexto perdido ou shader reprovado:
    └→ software 2D: mesma cena, mesma matriz, clipe de plano próximo, pintor longe→perto,
       teto de 520 objetos declarado na linha de estado
