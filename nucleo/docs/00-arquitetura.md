@@ -299,6 +299,44 @@ sobrescrita e cota verificada antes da escrita.
 Quando o runtime entrar (F4), o rootfs Debian chega pelo **mesmo** instalador: o disco já é o do
 convidado, então não há caminho novo a inventar — apenas um consumidor novo para o mesmo contrato.
 
+### 6.2.2 Navegador do sistema (modo texto) — o que dá para ter agora
+
+Rede dentro de uma página `crossOriginIsolated` é um problema de engenharia com duas metades:
+
+```text
+                             ┌─ iframe apontando para o site ──────────────┐
+pedido do usuário            │  X-Frame-Options / frame-ancestors recusam  │  → área branca
+"abrir site.com"             │  e a COEP require-corp bloqueia a origem    │
+                             └─────────────────────────────────────────────┘
+                             ┌─ proxy no host + renderização no cliente ──┐
+                             │  /api/fetch  → política → DNS → redirects   │
+                             │  htmltext.js → linhas + segmentos clicáveis │  → funciona hoje
+                             │  histórico, endereço, salvar em ~/Downloads │
+                             └─────────────────────────────────────────────┘
+```
+
+**Módulos.** `js/core/fetchpolicy.js` (política pura, sem I/O — testável por tabela),
+`server/fetch-route.js` (rota `/api/fetch`, com `fetch`/`lookup` injetáveis),
+`js/core/htmltext.js` (HTML → texto, `DOMParser` injetado) e `js/apps/browser.js` (a janela).
+
+**Fronteira de confiança.** O servidor passa a ser um proxy de leitura, e um proxy é a superfície
+mais perigosa do sistema: por isso as decisões estão em um módulo puro e **cada salto de
+redirecionamento é validado de novo** (seguir `Location` automaticamente é como um proxy deixa de
+ser seguro). Cadeia: esquema → credenciais → porta (80/443, denylist de serviços internos) → nome
+local (`localhost`, `.local`, `.internal`) → IPv4/IPv6 literais (incluindo `::ffff:0:0/96` nas
+formas decimal **e** hexadecimal, via `expandV6`) → DNS → tetos de 2 MiB (texto) / 8 MiB (bruto) e
+timeout de 15 s. Resíduos declarados: DNS rebinding (checagem é pré-conexão) e NAT64
+`64:ff9b::/96`. Mitigação: o servidor é de uso local e o README diz isso.
+
+**Representação.** A página vira `{ title, lines, links, base }`, onde cada linha tem
+`segments: [{ text, href }]` — uma frase com um link continua **uma linha**, e só o trecho do link
+é clicável. É essa escolha que separa um leitor de texto usável de uma lista de fragmentos.
+
+**Limites declarados na interface.** 4000 linhas por página (com aviso), sem CSS/layout/imagens
+pintadas e sem JavaScript do site. O navegador **diz** que é modo texto; não existe tentativa de
+parecer um motor gráfico. F4 entregaria o item 1 do menu de opções (navegador real dentro do Linux
+emulado); até lá, este é o caminho honesto.
+
 ### 6.3 Critérios de aceite do subsistema
 
 - `uname -a` e `cat /etc/debian_version` respondem **do guest**, não da UI. **[R]**

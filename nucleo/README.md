@@ -83,6 +83,57 @@ F4       apt install       →  runtime Linux no w-kernel
 Ou seja: o `nucleo/` que você tem hoje já é o disco dessa máquina. O que falta é o kernel de
 verdade, não o armazenamento nem o caminho de instalação.
 
+## Como instalar um navegador nele
+
+Resposta curta e em camadas, porque "instalar o Chrome aqui dentro" tem três significados
+diferentes — e só um deles é mentira:
+
+**1. Um navegador gráfico de verdade (Chrome, Firefox) rodando *dentro* do PC virtual.**
+Precisa do runtime Linux real, que é a fase F4 (`docs/00-arquitetura.md` §6.1). Não existe ainda, e
+um "Chrome" de mentira seria pior do que dizer isso.
+
+**2. Embutir o site dentro da interface por `iframe`.** Não funciona por dois motivos independentes:
+a maioria dos sites proíbe ser embutida (`X-Frame-Options`/`frame-ancestors`) e a nossa própria
+página é `crossOriginIsolated` (COEP `require-corp`), então nada de outra origem é carregado no
+documento. O resultado prático seria uma área em branco — não uma janela de navegador.
+
+**3. Um navegador do sistema, modo texto — este existe e está funcionando.**
+É o "Lynx do NÚCLEO": a página é buscada pelo servidor local (`/api/fetch`), convertida em texto e
+linhas clicáveis, e navegada dentro de uma janela normal do desktop.
+
+| Recurso | Estado | Como usar |
+|---|---|---|
+| Abrir | funcional | dock **Navegador**, paleta (`Ctrl+K` → *Abrir o navegador do sistema*), ou terminal `browse <endereço>` (alias `navegar`, `www`) |
+| Endereço | funcional | digitar e `Enter`; sem esquema assume `https://`; o que não parece domínio vira busca na Wikipédia |
+| Navegação | funcional | links em néon clicáveis, `←`/`→` (ou `Alt+←`/`Alt+→`), `⟳`/`F5`, `Ctrl+L` para a barra de endereço |
+| Salvar | funcional | botão **Salvar** grava o recurso em `~/Downloads` pelo mesmo instalador (aparece em `ls`, `Arquivos`) |
+| Renderização | **modo texto** | título, cabeçalhos, listas, citações, `<pre>`, imagens (`[imagem: alt]`) e links; **não** há layout, CSS, imagens pintadas nem JavaScript do site |
+
+O que o servidor recusa, com o motivo escrito na própria página de erro (nada é silencioso):
+`file://`, `data:`, `javascript:`, credenciais na URL, portas baixas fora de 80/443, portas de
+serviços internos (Docker API, Redis, bancos — lista em `js/core/fetchpolicy.js`), `localhost`,
+sufixos `.local`/`.internal`, qualquer IP privado/loopback/link-local, e redirecionamentos que
+levem para dentro da rede. As guardas são testadas antes **e** depois do DNS, porque um hostname
+público pode resolver para um IP privado.
+
+```text
+o usuário digita            servidor local (modem)                   janela do navegador
+─────────────────           ─────────────────────────────          ─────────────────────
+"Navegador" no dock   →     /api/fetch?url=…                  →    htmltext.js
+ou `browse site.com`        ├─ política de destino (SSRF)          ├─ título / linhas / links
+                            ├─ DNS validado por salto              ├─ segmentos clicáveis
+                            ├─ redirects seguidos à mão (≤5)       ├─ histórico ← →
+                            ├─ 2 MiB texto · 8 MiB bruto           └─ "Salvar" → ~/Downloads (VMFS)
+                            └─ timeout de 15 s
+```
+
+Limites declarados, para ninguém se surpreender: páginas acima de 2 MiB são recortadas em 4000
+linhas (com aviso na tela, não em silêncio); downloads acima de 8 MiB são recusados com o tamanho
+real informado; e a checagem de IP acontece antes da conexão, então **DNS rebinding** não é
+eliminado por completo — a mitigação é a de sempre: este servidor é de uso local, não exponha a
+porta na internet. Se a sua rede exigir uma CA própria (proxy corporativo), suba o servidor com
+`NODE_EXTRA_CA_CERTS=/caminho/ca.crt node server.js` — mecanismo padrão do Node, sem gambiarra.
+
 ## O que muda em preview embutido (iframe de terceiros)
 
 Um iframe não herda isolamento de origem: sem `crossOriginIsolated`, o navegador **não expõe**
@@ -130,6 +181,7 @@ Regra: nada é simulado para parecer que funciona. O que não existe aparece com
 | Terminal | funcional | shell sobre o VFS (`ls`, `cd`, `cat`, `write`, `rm`, `df`, `sysctl`, `bench`, `top`, `uname`), com caminhos normalizados e recusa de nomes hostis |
 | Gerenciador de arquivos | funcional | navegação, criação, remoção, renomeação no mesmo VFS do terminal |
 | Sistema de arquivos (VFS) | funcional | OPFS com `SyncAccessHandle` quando disponível, degradando para `createWritable` e para memória volátil — o backend em uso aparece na interface |
+| Navegador (modo texto) | funcional | busca pelo servidor local com política anti-SSRF, HTML → texto com links clicáveis, histórico voltar/avançar, salvar em `~/Downloads`; declara na interface que **não** é um motor gráfico |
 | Instalador de arquivos | funcional | arrastar-e-soltar, paleta, janela Arquivos e `install` no terminal; sanitização de nome, colisão sem sobrescrita, cota checada antes da escrita |
 | Motor de mundo aberto | funcional | ECS SoA com passo fixo de 120 Hz, física de seguimento de faixa, IA de tráfego, snapshot binário, cena 3D em WebGL2 |
 | Telemetria (HUD) | funcional | FPS, P50/P95 de quadro, custo por worker, MB/s de I/O, entidades, ticks, transporte IPC |
@@ -168,6 +220,10 @@ npm run test:browser   # Playwright/Chromium — exige `npx playwright install c
 O teste de navegador está escrito e **não foi executado no ambiente de construção** (download do
 Chromium bloqueado). Nenhum resultado de navegador é declarado enquanto não houver execução.
 
+Os testes da política de rede do navegador usam `fetch` e DNS falsos (`tests/core.mjs` §17): se
+alguém tentar buscar `169.254.169.254` ou seguir um `Location` para dentro da rede, o teste acusa —
+e a rota é exercitada sem tocar a internet.
+
 ## Honestidade técnica
 
 - `N/D` com motivo no HUD em vez de valor inventado (VRAM, heap por worker).
@@ -183,9 +239,10 @@ index.html          shell do desktop (sem CDN, funciona offline)
 server.js           servidor estático mínimo com COOP/COEP (zero dependências)
 css/tokens.css      tokens do design system (fonte única de verdade)
 css/os.css          contrato visual de todos os componentes
-js/core/            ipc · link · wire · snapshot · vfs · vfs-local · import · geom · wm · bus · util · mat4
+js/core/            ipc · link · wire · snapshot · vfs · vfs-local · import · fetchpolicy · htmltext · geom · wm · bus · util · mat4
+server/             fetch-route.js (rota /api/fetch do navegador do sistema)
 js/ui/              hud · toast · icons
-js/apps/            terminal · files · game · settings
+js/apps/            terminal · browser · files · game · settings
 js/boot.js          boot + sondagem real de capacidades do navegador
 js/main.js          orquestração: workers, barramentos, VFS, WM, HUD, registro de apps
 workers/            kernel.worker · engine.worker · io.worker

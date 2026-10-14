@@ -20,6 +20,7 @@ import { svgIcon } from './ui/icons.js';
 import { createBoot, probeCapabilities } from './boot.js';
 import { createTerminal } from './apps/terminal.js';
 import { createFiles } from './apps/files.js';
+import { createBrowser } from './apps/browser.js';
 import { createGame } from './apps/game.js';
 import { createSettings } from './apps/settings.js';
 
@@ -175,12 +176,15 @@ export async function startOS() {
     reboot: () => location.reload(),
     installFiles,
     installDir: INSTALL_DIR,
+    browse: url => browse(url),
     destroy,
     restartWorkers
   };
 
   os.apps = [
     { id: 'terminal', title: 'Terminal', icon: 'terminal', w: 780, h: 440, create: () => createTerminal({ vfs, os }) },
+    { id: 'navegador', title: 'Navegador', icon: 'globe', w: 820, h: 580,
+      create: () => createBrowser({ toast: toasts, os, vfs }) },
     { id: 'arquivos', title: 'Arquivos', icon: 'files', w: 760, h: 460,
       create: () => createFiles({ vfs, toast: toasts, onDropFiles: (dir, files) => installFiles(dir, files) }) },
     { id: 'cidade', title: 'Cidade — motor 3D', icon: 'game', w: 900, h: 560, create: makeGame },
@@ -245,6 +249,15 @@ export async function startOS() {
     saveSettings(settings);
     toasts.ok(`Perfil ${name}`, `escala ${p.renderScale}× · ${p.fpsCap} fps · ${p.entities} entidades`);
     settingsPanel?.refresh();
+  }
+
+  // --------------------------------------------------------------- navegador --
+  /** Abre (ou reusa) a janela do navegador já apontada para uma URL. */
+  function browse(url = null) {
+    launch('navegador');                       // singleton: reusa a janela aberta
+    const app = wm.instance('navegador');
+    if (url && app?.openUrl) app.openUrl(url);
+    return app;
   }
 
   // ------------------------------------------------------------ instalação --
@@ -439,6 +452,7 @@ export async function startOS() {
       { label: 'Alternar HUD de telemetria', icon: 'hud', run: () => setSetting('hud', !hud.visible) },
       { label: 'Configurações do sistema', icon: 'settings', run: openSettings },
       { label: 'Instalar arquivos no PC virtual (vai para ~/Downloads)', icon: 'files', run: () => installFiles(INSTALL_DIR) },
+      { label: 'Abrir o navegador do sistema (modo texto)', icon: 'globe', run: () => browse() },
       { label: 'Benchmark do disco virtual', icon: 'storage', run: async () => { const r = await vfs.bench(); toasts.ok('I/O do VMFS', `escrita ${fmt1(r.writeMbps)} MB/s · leitura ${fmt1(r.readMbps)} MB/s`); } },
       { label: 'Copiar diagnóstico', icon: 'chip', run: async () => { await navigator.clipboard?.writeText(diagnostics()); toasts.ok('Diagnóstico', 'copiado'); } },
       { label: 'Reiniciar subsistemas (workers)', icon: 'reboot', run: restartWorkers }
@@ -609,11 +623,11 @@ function buildShell({ os, wm, hud, launch, bus }) {
   bus.on('metrics', applyCaps);
 
   const ICONS = {
-    terminal: 'terminal', arquivos: 'files', cidade: 'game',
+    terminal: 'terminal', navegador: 'globe', arquivos: 'files', cidade: 'game',
     ajustes: 'settings', hud: 'hud'
   };
   const desktop = $('#icons');
-  for (const [id, label] of Object.entries({ terminal: 'Terminal', arquivos: 'Arquivos', cidade: 'Cidade 3D', ajustes: 'Configurações', hud: 'Telemetria' })) {
+  for (const [id, label] of Object.entries({ terminal: 'Terminal', navegador: 'Navegador', arquivos: 'Arquivos', cidade: 'Cidade 3D', ajustes: 'Configurações', hud: 'Telemetria' })) {
     desktop.append(el('button', {
       class: 'dicon', 'data-app': id,
       ondblclick: () => id === 'hud' ? hud.toggle() : launch(id),

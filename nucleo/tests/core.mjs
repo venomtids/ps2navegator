@@ -24,6 +24,8 @@ import { createLocalVFS } from '../js/core/vfs-local.js';
 import { safePath, fmtBytes, Histogram, clamp, baseName } from '../js/core/util.js';
 import { probeCapabilities } from '../js/boot.js';
 import { installFiles, sanitizeName, describeInstall, INSTALL_DIR } from '../js/core/import.js';
+import { checkTarget, checkResolvedAddresses, expandV6, isPrivateV6, MAX_TEXT_BYTES } from '../js/core/fetchpolicy.js';
+import { createFetchRoute } from '../server/fetch-route.js';
 
 let passed = 0, failed = 0;
 const results = [];
@@ -898,7 +900,188 @@ await test('progresso reporta bytes reais, acumulados', async () => {
   assert.deepEqual(vistos, [['a.bin', 100, 100], ['b.bin', 250, 350], ['c.bin', 7, 357]]);
 });
 
-section('16 · módulos (grafo de importação íntegro e carga sem DOM)');
+// ------------------------------------------- 17 política de rede do navegador --
+section('17 · política de rede: o que o navegador do sistema pode alcançar');
+
+await test('URLs perigosas são recusadas com motivo, não com silêncio', () => {
+  const negar = (url, trecho) => {
+    const r = checkTarget(url);
+    assert.equal(r.ok, false, `${url} deveria ser recusada`);
+    assert.match(r.reason, trecho, `${url} recusada pelo motivo errado: ${r.reason}`);
+  };
+  negar('file:///etc/passwd', /esquema/);
+  negar('data:text/html,<b>x</b>', /esquema/);
+  negar('javascript:alert(1)', /inválida|esquema/);
+  negar('http://user:senha@site.com/', /credenciais/);
+  negar('http://127.0.0.1:8080/x', /privado/);
+  negar('http://127.1/', /privado/);
+  negar('http://10.0.0.5/', /privado/);
+  negar('http://172.16.9.9/', /privado/);
+  negar('http://192.168.0.1/', /privado/);
+  negar('http://169.254.169.254/latest/meta-data/', /privado/, 'metadados de nuvem');
+  negar('http://100.64.0.1/', /privado/, 'CGNAT');
+  negar('localhost/admin', /local/);
+  negar('http://algo.local/', /local/);
+  negar('http://algo.internal/', /local/);
+  negar('http://site.com:22/', /porta/);
+  negar('http://site.com:2375/containers/json', /serviço interno/, 'Docker API');
+  negar('https://site.com:6443/api', /serviço interno/, 'API do Kubernetes');
+  negar('http://site.com:6379/', /serviço interno/);
+  negar('', /vazia/);
+
+  // E o que é legítimo precisa passar.
+  for (const url of ['https://pt.wikipedia.org/wiki/Brasil', 'http://example.com/a/b?c=d', 'site.com']) {
+    const r = checkTarget(url);
+    assert.equal(r.ok, true, `${url} deveria ser permitida: ${r.reason || ''}`);
+  }
+  assert.equal(checkTarget('site.com').url, 'https://site.com/', 'sem esquema, assume https');
+  assert.equal(checkTarget('https://site.com/a#topo').url, 'https://site.com/a', 'fragmento sai da URL buscada');
+});
+
+/** Um `response` de mentira, com o mínimo que a rota usa. */
+function fakeResponse({ status = 200, contentType = 'text/html', body = '<html>ok</html>', location = null, declared = null } = {}) {
+  const bytes = typeof body === 'string' ? new TextEncoder().encode(body) : body;
+  const headers = new Map([['content-type', contentType], ['location', location].filter(Boolean)]);
+  return {
+    status,
+    headers: {
+      get: name => headers.get(name.toLowerCase()) ?? null,
+      ...(declared !== null ? {} : {})
+    },
+    body: {
+      getReader: () => {
+        let done = false;
+        return {
+          read: async () => {
+            if (done) return { done: true, value: undefined };
+            done = true;
+            return { done: false, value: bytes };
+          },
+          cancel: async () => {}
+        };
+      }
+    },
+    arrayBuffer: async () => bytes.buffer
+  };
+}
+
+/** Executa a rota com `fetch`/DNS falsos e devolve o que ela respondeu. */
+async function runRoute(url, { fetchImpl, lookup = async () => [{ address: '93.184.216.34', family: 4 }] } = {}) {
+  const route = createFetchRoute({ fetchImpl, lookup });
+  return await new Promise(resolve => {
+    const req = { method: 'GET', url };
+    const res = { writeHead(status, headers) { this.status = status; this.headers = headers; }, end(body) { resolve({ status: this.status || 200, headers: this.headers || {}, body: body?.toString?.() ?? '' }); } };
+    const send = (r, status, headers, body) => { r.writeHead(status, headers); r.end(body); };
+    route(req, res, send).then(handled => { if (handled === false) resolve({ status: 0, headers: {}, body: '' }); });
+  });
+}
+
+await test('a rota bloqueia destino privado mesmo quando o DNS mente', async () => {
+  let chamou = false;
+  const r = await runRoute('/api/fetch?url=https://site-publico.com/', {
+    fetchImpl: async () => { chamou = true; return fakeResponse(); },
+    lookup: async () => [{ address: '10.0.0.7', family: 4 }]   // DNS rebinding
+  });
+  assert.equal(r.status, 403);
+  assert.match(r.body, /DNS devolveu IP privado/);
+  assert.equal(chamou, false, 'não pode nem tocar a rede depois do DNS suspeito');
+});
+
+await test('a rota segue redirecionamento válido mas recusa redirecionamento para dentro', async () => {
+  // salto legítimo: /a → /b na mesma origem
+  const okResposta = await runRoute('/api/fetch?url=https://site.com/a', {
+    fetchImpl: async url => (url.endsWith('/a')
+      ? fakeResponse({ status: 302, location: '/b' })
+      : fakeResponse({ body: '<h1>destino</h1>' }))
+  });
+  assert.equal(okResposta.status, 200);
+  const json = JSON.parse(okResposta.body);
+  assert.equal(json.url, 'https://site.com/b', 'o redirecionamento relativo precisa ser resolvido');
+  assert.match(json.text, /destino/);
+
+  // salto malicioso: 302 apontando para a rede interna
+  const bloqueado = await runRoute('/api/fetch?url=https://site.com/a', {
+    fetchImpl: async () => fakeResponse({ status: 302, location: 'http://169.254.169.254/latest/meta-data/' })
+  });
+  assert.equal(bloqueado.status, 403);
+  assert.match(bloqueado.body, /redirecionamento bloqueado/);
+
+  // e a URL pedida direto também é recusada antes de qualquer I/O
+  const direto = await runRoute('/api/fetch?url=http://127.0.0.1:9000/', { fetchImpl: async () => fakeResponse() });
+  assert.equal(direto.status, 400);
+  assert.match(direto.body, /privado/);
+});
+
+await test('a rota respeita o teto de bytes e o tempo da resposta', async () => {
+  const grande = await runRoute('/api/fetch?url=https://site.com/grande', {
+    fetchImpl: async () => fakeResponse({ body: new Uint8Array(MAX_TEXT_BYTES + 1024), contentType: 'text/html' })
+  });
+  assert.equal(grande.status, 413);
+  assert.match(grande.body, /teto de 2 MiB/);
+  assert.match(grande.body, /não é um limite inventado|teto|2 MiB/);
+
+  const pequeno = await runRoute('/api/fetch?url=https://site.com/ok', {
+    fetchImpl: async () => fakeResponse({ body: '<p>oi</p>' })
+  });
+  const json = JSON.parse(pequeno.body);
+  assert.equal(json.ok, true);
+  assert.equal(json.bytes, 9);
+  assert.equal(json.htmlLike, true);
+  assert.ok(Number.isFinite(json.ms), 'o tempo é medido, não estimado');
+
+  // binário: a rota não tenta decodificar texto, ela avisa
+  const bin = await runRoute('/api/fetch?url=https://site.com/img.png', {
+    fetchImpl: async () => fakeResponse({ body: new Uint8Array([1, 2, 3]), contentType: 'image/png' })
+  });
+  const binJson = JSON.parse(bin.body);
+  assert.equal(binJson.text, null);
+  assert.match(binJson.note, /binário/);
+
+  // raw=1 devolve os bytes crus, para "salvar no disco virtual"
+  const cru = await runRoute('/api/fetch?url=https://site.com/img.png&raw=1', {
+    fetchImpl: async () => fakeResponse({ body: 'PNGDATA', contentType: 'image/png' })
+  });
+  assert.equal(cru.status, 200);
+  assert.equal(cru.headers['X-Nucleo-Fetch'], 'raw');
+  assert.equal(cru.body, 'PNGDATA');
+});
+
+await test('falha de rede vira resposta explicável, nunca exceção solta', async () => {
+  const r = await runRoute('/api/fetch?url=https://site.com/x', {
+    fetchImpl: async () => { throw new Error('getaddrinfo ENOTFOUND site.com'); }
+  });
+  const json = JSON.parse(r.body);
+  assert.equal(json.ok, false);
+  assert.match(json.error, /falha de rede/);
+  assert.match(json.error, /ENOTFOUND/, 'o motivo real precisa chegar ao usuário');
+
+  // TLS interceptado / CA desconhecida: o `cause` precisa aparecer no texto
+  const tls = await runRoute('/api/fetch?url=https://site.com/x', {
+    fetchImpl: async () => { const e = new Error('fetch failed'); e.cause = { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }; throw e; }
+  });
+  assert.match(JSON.parse(tls.body).error, /UNABLE_TO_VERIFY_LEAF_SIGNATURE/,
+    'sem o `cause`, o usuário lê "fetch failed" e não descobre que o problema é certificado');
+
+  // e uma rota que não é dela devolve false (o servidor segue para os arquivos)
+  const outra = await runRoute('/index.html', { fetchImpl: async () => fakeResponse() });
+  assert.equal(outra.status, 0, 'a rota precisa dizer que não tratou o pedido');
+});
+
+await test('expandV6/checkResolvedAddresses cobrem as formas de loopback', () => {
+  assert.deepEqual(expandV6('::1'), [0, 0, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(expandV6('2001:db8::1'), [0x2001, 0x0db8, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(expandV6('::ffff:127.0.0.1'), [0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001]);
+  for (const ip of ['::1', '::', 'fc00::1', 'fd12:3456::1', 'fe80::1', 'ff02::1', '::ffff:127.0.0.1', '::ffff:7f00:1', 'fe80::1%eth0']) {
+    assert.equal(isPrivateV6(ip), true, `${ip} deveria ser privado`);
+  }
+  for (const ip of ['2001:db8::1', '2606:4700:4700::1111', '64:ff9b::7f00:1']) {
+    assert.equal(isPrivateV6(ip), false, `${ip} não deveria ser privado`);
+  }
+  assert.equal(checkResolvedAddresses([{ address: '::1' }]).ok, false);
+  assert.equal(checkResolvedAddresses([{ address: '2606:4700::1111' }]).ok, true);
+});
+
+section('18 · módulos (grafo de importação íntegro e carga sem DOM)');
 
 await test('todo o núcleo e os três workers carregam sem DOM e sem erro de topo', async () => {
   // Shim mínimo: os módulos de worker chamam acceptWorkerLink(self) no topo.
@@ -910,7 +1093,7 @@ await test('todo o núcleo e os três workers carregam sem DOM e sem erro de top
 
   const coreModules = [
     'core/util.js', 'core/bus.js', 'core/geom.js', 'core/ipc.js', 'core/wire.js',
-    'core/snapshot.js', 'core/link.js', 'core/vfs.js', 'core/vfs-local.js', 'core/import.js', 'core/wm.js', 'core/mat4.js',
+    'core/snapshot.js', 'core/link.js', 'core/vfs.js', 'core/vfs-local.js', 'core/import.js', 'core/fetchpolicy.js', 'core/htmltext.js', 'core/wm.js', 'core/mat4.js',
     'ui/icons.js', 'ui/toast.js', 'ui/hud.js',
     'apps/terminal.js', 'apps/files.js', 'apps/game.js', 'apps/settings.js',
     'boot.js', 'main.js'

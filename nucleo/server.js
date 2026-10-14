@@ -16,6 +16,7 @@ import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createFetchRoute } from './server/fetch-route.js';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const PORT = Number(process.env.PORT || 3400);
@@ -62,9 +63,24 @@ function send(res, status, headers, body) {
   if (body === undefined) res.end(); else res.end(body);
 }
 
-const server = createServer((req, res) => {
+/**
+ * Rota de busca do navegador do sistema (`/api/fetch`). É um proxy — por isso
+ * vem com as guardas de js/core/fetchpolicy.js e só vale para uso local: NÃO
+ * exponha este servidor na internet aberta (README).
+ */
+const handleFetch = createFetchRoute();
+
+const server = createServer(async (req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return send(res, 405, { Allow: 'GET, HEAD', 'Content-Type': 'text/plain' }, 'method not allowed\n');
+  }
+
+  try {
+    if (await handleFetch(req, res, send)) return;
+  } catch (e) {
+    console.error('[fetch]', e);
+    return send(res, 500, { 'Content-Type': 'application/json; charset=utf-8' },
+      JSON.stringify({ ok: false, error: 'falha interna na rota de busca' }));
   }
 
   const target = resolveTarget(req.url || '/');
@@ -94,5 +110,6 @@ const server = createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`NÚCLEO OS: http://localhost:${PORT}`);
   console.log('COOP/COEP ativos — SharedArrayBuffer disponível quando aberto em aba própria.');
-  console.log('Se o preview embutido bloquear isolamento, abra o endereço em uma nova guia.');
+  console.log('Navegador de texto disponível (rota /api/fetch) — este servidor é para uso LOCAL:');
+  console.log('não exponha esta porta na internet, ela é um proxy de leitura.');
 });

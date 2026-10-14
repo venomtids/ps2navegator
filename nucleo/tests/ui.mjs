@@ -39,6 +39,9 @@ const { createWM } = await import('../js/core/wm.js');
 const { createToasts } = await import('../js/ui/toast.js');
 const { createHUD } = await import('../js/ui/hud.js');
 const { createBus } = await import('../js/core/bus.js');
+const { renderPage, pageToText, resolveUrl } = await import('../js/core/htmltext.js');
+const { createBrowser, fileNameFrom } = await import('../js/apps/browser.js');
+const { createTerminal } = await import('../js/apps/terminal.js');
 const { fmt1 } = await import('../js/core/util.js');
 
 const fresh = () => { document.body.replaceChildren(); return document.body; };
@@ -314,6 +317,27 @@ await test('o desktop monta inteiro mesmo sem worker, OPFS e canvas', async () =
     restrito.window.dispatchEvent(drag);
     assert.ok(document.querySelector('#dropzone').classList.contains('on'), 'arrastar precisa revelar o destino');
 
+    // O navegador do sistema abre pelo mesmo caminho dos outros apps: `os.browse`.
+    // O `fetch` é substituído por uma página falsa — aqui se prova o encanamento
+    // (janela, rota /api/fetch, renderização), não a internet.
+    const fetchAntes = globalThis.fetch;
+    globalThis.fetch = async url => ({
+      status: 200, ok: true,
+      json: async () => ({
+        ok: true, url: 'https://exemplo.org/', status: 200, contentType: 'text/html', bytes: 64, ms: 3, htmlLike: true,
+        text: '<html><title>Exemplo</title><body><h1>Funcionou</h1><p>Veja <a href="/dois">a segunda</a>.</p></body></html>'
+      })
+    });
+    try {
+      os.browse('https://exemplo.org/');
+      await sleep(40);
+      const janelaNav = document.querySelector('#windows');
+      assert.ok(os.wm.has('navegador'), 'os.browse precisa abrir a janela do navegador');
+      assert.match(janelaNav.textContent, /Funcionou/, 'a página precisa ser renderizada dentro da janela');
+      assert.ok(janelaNav.querySelector('.blink'), 'os links precisam existir como elementos clicáveis');
+      assert.match(janelaNav.querySelector('.bmeta').textContent, /200 · 64 B · 3 ms/, 'a barra de estado mostra o que foi medido');
+    } finally { globalThis.fetch = fetchAntes; }
+
     // Abrir janela sem engine: precisa aparecer a declaração, não uma cena vazia mentirosa.
     const win = os.wm.open({ id: 'cidade', app: 'game', title: 'Cidade', w: 900, h: 560, create: () => ({ el: document.createElement('div') }) });
     assert.ok(win, 'o window manager precisa abrir uma janela mesmo sem subsistemas');
@@ -325,6 +349,184 @@ await test('o desktop monta inteiro mesmo sem worker, OPFS e canvas', async () =
     if (!antes.Worker) delete globalThis.Worker;
     if (sabAntes) globalThis.SharedArrayBuffer = sabAntes;
   }
+});
+
+
+// ------------------------------------------------------------- navegador -----
+section('navegador de texto (HTML → texto, links, histórico e download)');
+
+await test('renderPage extrai título, texto e links; descarta script e style', () => {
+  const html = `<html><head><title>Meu título</title>
+    <script>var html = '<h1>não sou conteúdo</h1>';</script><style>h1{color:red}</style>
+    <base href="https://base.example/x/"></head><body>
+    <h1>Cabeçalho &amp; cia</h1>
+    <p>Frase com <a href="rel.html">um link</a> no meio dela.</p>
+    <ul><li>item simples</li></ul>
+    <pre>    literal
+    preservado</pre>
+    <img src="foto.png" alt="uma foto">
+    </body></html>`;
+  const page = renderPage(html, { url: 'https://site.com/p/' });
+
+  assert.equal(page.title, 'Meu título');
+  const texto = pageToText(page);
+  assert.match(texto, /Cabeçalho & cia/, 'entidades resolvidas');
+  assert.match(texto, /Frase com um link no meio dela\./, 'a frase não pode ser fatiada');
+  assert.ok(!texto.includes('não sou conteúdo'), 'conteúdo de <script> não é texto da página');
+  assert.ok(!texto.includes('color:red'), 'CSS não é conteúdo');
+  assert.match(texto, /literal/, '<pre> preservado');
+  assert.match(texto, /\[imagem: uma foto\]/);
+
+  // item que só tem o marcador não é conteúdo (HTML real chega assim: GitHub usa <li>•</li>)
+  const comEnfeite = renderPage('<ul><li>•</li><li>isto é conteúdo</li></ul>', { url: 'https://s.com/' });
+  const itens = comEnfeite.lines.filter(l => l.kind === 'li');
+  assert.equal(itens.length, 1, `marcador solto virou linha: ${JSON.stringify(itens.map(l => l.text))}`);
+  assert.match(itens[0].text, /• isto é conteúdo/);
+
+  // <base href> manda nos links relativos — inclusive no <img>
+  assert.ok(page.links.includes('https://base.example/x/rel.html'), page.links.join(' '));
+  assert.ok(page.links.includes('https://base.example/x/foto.png'));
+
+  // segmentos: só o trecho do link é clicável
+  const linha = page.lines.find(l => l.text.includes('Frase com'));
+  assert.equal(linha.segments.filter(s => s.href).length, 1);
+  assert.equal(linha.segments.find(s => s.href).text, 'um link');
+  assert.equal(linha.href, null, 'linha com mais de um segmento não é um link inteiro');
+
+  // link sozinho na linha vira linha-link
+  const soLink = renderPage('<a href="/x">clique</a>', { url: 'https://site.com/' });
+  assert.equal(soLink.lines.at(-1).href, 'https://site.com/x');
+  assert.equal(resolveUrl('a/b', 'https://s.com/d/e'), 'https://s.com/d/a/b');
+  assert.equal(resolveUrl(null, 'https://s.com'), null);
+});
+
+await test('o navegador carrega, navega por link e mantém histórico', async () => {
+  const antigoFetch = globalThis.fetch;
+  const pedidos = [];
+  globalThis.fetch = async url => {
+    pedidos.push(url);
+    if (String(url).includes('erro')) {
+      return { status: 200, ok: true, json: async () => ({ ok: false, error: 'host bloqueado: localhost' }) };
+    }
+    return {
+      status: 200, ok: true,
+      json: async () => ({
+        ok: true, url: 'https://site.com/pagina', status: 200, contentType: 'text/html; charset=utf-8',
+        bytes: 120, ms: 7, htmlLike: true,
+        text: '<html><head><title>Início</title></head><body><h1>Bem-vindo</h1><p>Veja <a href="/dois">a segunda página</a>.</p></body></html>'
+      })
+    };
+  };
+  try {
+    const root = fresh();
+    const app = createBrowser({ toast: { ok() {}, err() {}, warn() {}, push() {} }, os: { installDir: '/home/nucleo/Downloads', installFiles: async () => ({ ok: [], failed: [] }) }, vfs: null });
+    root.append(app.el);
+    app.onMount();
+    await sleep(30);
+
+    assert.match(pedidos[0], /wikipedia\.org/, 'abre numa página inicial de verdade, não em branco');
+    assert.equal(app.el.querySelector('.addr').value, 'https://site.com/pagina', 'o endereço reflete a URL final (após redirecionamentos)');
+    assert.match(app.el.querySelector('.bview').textContent, /Bem-vindo/);
+    assert.ok(app.el.querySelector('.blink'), 'o link precisa existir como elemento clicável');
+    assert.equal(app.stats.cursor, 0);
+
+    // clicar no link navega e empilha histórico
+    app.el.querySelector('.blink').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(30);
+    assert.equal(app.stats.history, 2, 'cada navegação empilha uma entrada');
+    assert.equal(app.stats.cursor, 1);
+    // o link era relativo ("/dois") e a URL final era /pagina → precisa virar absoluto
+    assert.ok(pedidos.some(u => String(u).includes('%2Fdois') || String(u).includes('/dois')),
+      `a segunda busca precisa acontecer com o link resolvido: ${JSON.stringify(pedidos)}`);
+
+    // voltar usa o histórico, sem nova busca
+    const buscasAntes = pedidos.length;
+    app.el.querySelector('.bar .btn').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(30);
+    assert.equal(app.stats.cursor, 0, 'voltar move o cursor, não cria entrada');
+    assert.equal(app.stats.history, 2);
+    assert.ok(pedidos.length > buscasAntes, 'voltar recarrega a URL anterior');
+
+    // erro mostrado no lugar do conteúdo, com o motivo do servidor
+    app.openUrl('https://site.com/erro');
+    await sleep(30);
+    assert.match(app.el.querySelector('.bview').textContent, /host bloqueado: localhost/);
+    assert.match(app.el.querySelector('.bview').textContent, /não foi possível abrir/);
+  } finally {
+    globalThis.fetch = antigoFetch;
+  }
+});
+
+await test('o terminal tem `browse` e ele chega ao navegador (alias, help e erro explícito)', async () => {
+  const root = fresh();
+  const chamadas = [];
+  const vfs = {
+    cwd: '/home/nucleo',
+    list: async () => [],
+    read: async () => new Uint8Array(),
+    write: async () => ({}),
+    stat: async () => null,
+    remove: async () => ({})
+  };
+  const term = createTerminal({ vfs, os: { browse: url => chamadas.push(url), installFiles: async () => ({ ok: [], failed: [] }) } });
+  root.append(term.el);
+  term.onMount();
+
+  const digitar = async texto => {
+    const campo = term.el.querySelector('input');
+    campo.value = texto;
+    campo.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await sleep(30);
+  };
+
+  await digitar('browse exemplo.org');
+  assert.deepEqual(chamadas, ['exemplo.org'], 'o comando precisa repassar o endereço, sem inventar');
+  const help = term.el.textContent;
+  assert.match(help, /exemplo\.org/, 'o terminal precisa confirmar o que abriu');
+
+  await digitar('help');
+  // o help é renderizado como "nome  descrição" (com padding), não "nome: descrição"
+  assert.match(term.el.textContent, /browse\s+abre uma página no navegador/, 'o help precisa listar o comando');
+
+  await digitar('navegar site.com/teste');
+  assert.deepEqual(chamadas.at(-1), 'site.com/teste', 'o alias `navegar` precisa funcionar igual');
+
+  await digitar('browse');
+  assert.match(term.el.textContent, /uso: browse <endereço>/, 'sem argumento, ensina o uso em vez de falhar mudo');
+
+  // Regressão do bug que este teste encontrou: `run()` passava o array COM o nome do
+  // comando, então `write recado.txt oi` gravava um arquivo chamado "write".
+  const criados = [];
+  const vfsEscrita = {
+    cwd: '/home/nucleo',
+    write: async (p, data) => { criados.push([p, String(data)]); return { path: p, bytes: String(data).length }; },
+    list: async () => criados.map(([p, d]) => ({ name: p, type: 'file', size: d.length })),
+    read: async p => new TextEncoder().encode(criados.find(([n]) => n === p)?.[1] ?? ''),
+    stat: async () => ({ type: 'dir' }), remove: async () => ({})
+  };
+  const term2 = createTerminal({ vfs: vfsEscrita, os: { browse: () => {} } });
+  root.append(term2.el);
+  term2.onMount();
+  const campo2 = term2.el.querySelector('input');
+  const digitar2 = async texto => {
+    campo2.value = texto;
+    campo2.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await sleep(25);
+  };
+  await digitar2('write recado.txt ola mundo');
+  assert.deepEqual(criados, [['recado.txt', 'ola mundo']],
+    'o primeiro argumento é o arquivo; o nome do comando não pode virar nome de arquivo');
+  await digitar2('cat recado.txt');
+  assert.match(term2.el.textContent, /ola mundo/, 'cat precisa ler o arquivo que foi escrito');
+});
+
+await test('fileNameFrom deriva nome de arquivo útil para salvar no disco', () => {
+  assert.equal(fileNameFrom('https://site.com/docs/relatorio.pdf', 'application/pdf'), 'relatorio.pdf');
+  assert.equal(fileNameFrom('https://site.com/fotos/foto%20bonita.jpg', 'image/jpeg'), 'foto_bonita.jpg');
+  assert.equal(fileNameFrom('https://site.com/pagina/', 'text/html'), 'pagina.html');
+  assert.equal(fileNameFrom('https://site.com/dados', 'application/json'), 'dados.json');
+  assert.equal(fileNameFrom('https://site.com/x', 'application/octet-stream'), 'x.bin');
+  assert.equal(fileNameFrom('nao-e-url'), 'pagina.html');
 });
 
 // ---------------------------------------------------------------- relatório

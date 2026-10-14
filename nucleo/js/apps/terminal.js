@@ -176,6 +176,13 @@ export function createTerminal({ vfs, os }) {
       os.launch(app);
       ok(`abrindo ${app}`);
     },
+    async browse(args) {
+      if (!args.length) return dim('uso: browse <endereço>   (sem argumento abre o navegador)');
+      const alvo = args.join(' ');
+      if (typeof os.browse !== 'function') return err('navegador indisponível neste modo');
+      os.browse(alvo);
+      ok(`abrindo ${alvo}`);
+    },
     async install(args) {
       // Instala arquivos do computador real no diretório atual do shell.
       const dir = args[0] ? safePath(args[0], cwd) : cwd;
@@ -194,13 +201,14 @@ export function createTerminal({ vfs, os }) {
     mkdir: 'cria pasta', touch: 'cria arquivo vazio', write: 'grava texto em arquivo', rm: 'remove',
     df: 'uso do disco virtual', free: 'memória (real ou N/D)', ps: 'subsistemas e custo por tick',
     top: 'instantâneo da telemetria', sysctl: 'capacidades do navegador', bench: 'benchmark de I/O',
-    open: 'abre um app do desktop', install: 'instala arquivos do seu PC aqui (alias: receber)',
+    open: 'abre um app do desktop', browse: 'abre uma página no navegador (alias: navegar)',
+    install: 'instala arquivos do seu PC aqui (alias: receber)',
     neofetch: 'resumo da build', uname: 'identificação',
     uptime: 'tempo de sessão', date: 'hora local', clear: 'limpa a tela', reboot: 'reinicia o OS'
   };
 
   // Apelidos em português: o terminal é o app mais usado do sistema.
-  const ALIAS = { receber: 'install' };
+  const ALIAS = { receber: 'install', navegar: 'browse', www: 'browse' };
 
   async function run(text) {
     const parts = text.split(/\s+/).filter(Boolean);
@@ -213,7 +221,10 @@ export function createTerminal({ vfs, os }) {
       return;
     }
     busy = true;
-    try { await fn(parts); }
+    // `parts[0]` é o nome do comando (já traduzido por ALIAS): os handlers recebem
+    // só os argumentos. Sem o `slice(1)`, `write recado.txt oi` gravava um arquivo
+    // chamado "write" — o bug existia desde o primeiro comando com argumento.
+    try { await fn(parts.slice(1)); }
     catch (e) { err(String(e.message || e)); }
     finally { busy = false; }
   }

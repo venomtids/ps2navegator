@@ -298,6 +298,8 @@ export function createWM({ layer, taskbar, bus, statusH = 34 }) {
     get count() { return wins.size; },
     list: () => [...wins.values()].map(w => ({ id: w.id, title: w.title, minimized: w.minimized, maximized: w.maximized, rect: { ...w.rect } })),
     has: id => wins.has(id),
+    /** Instância montada do app (o que `spec.mount` devolveu) — ou null. */
+    instance: id => wins.get(id)?.mounted || null,
     setTitle(id, title) { const w = wins.get(id); if (w) { w.title = title; w.el.querySelector('h2').textContent = title; renderTaskbar(); } },
     refreshTaskbar: renderTaskbar
   };
