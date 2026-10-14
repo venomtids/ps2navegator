@@ -424,30 +424,42 @@ await test('o navegador carrega, navega por link e mantém histórico', async ()
     app.onMount();
     await sleep(30);
 
-    assert.match(pedidos[0], /wikipedia\.org/, 'abre numa página inicial de verdade, não em branco');
-    assert.equal(app.el.querySelector('.addr').value, 'https://site.com/pagina', 'o endereço reflete a URL final (após redirecionamentos)');
-    assert.match(app.el.querySelector('.bview').textContent, /Bem-vindo/);
-    assert.ok(app.el.querySelector('.blink'), 'o link precisa existir como elemento clicável');
+    // A página inicial é LOCAL: abrir o navegador não pode depender da rede (em rede
+    // restrita a primeira impressão era uma tela de erro).
+    assert.deepEqual(pedidos, [], 'a página inicial não faz requisição nenhuma');
+    assert.match(app.el.querySelector('.bview').textContent, /modo texto/i, 'a página inicial declara o modo texto');
+    assert.equal(app.el.querySelector('.addr').value, 'about:inicio');
+    assert.match(app.el.querySelector('.bmeta').textContent, /0 requisições/);
     assert.equal(app.stats.cursor, 0);
 
-    // clicar no link navega e empilha histórico
+    // Navegar de verdade: busca pelo proxy e renderiza o HTML recebido.
+    app.openUrl('https://site.com/pagina');
+    await sleep(30);
+    assert.equal(pedidos.length, 1, 'abrir um endereço precisa consultar o proxy');
+    assert.match(pedidos[0], /%2Fpagina|\/pagina/, 'a URL precisa ir codificada no parâmetro');
+    assert.match(app.el.querySelector('.bview').textContent, /Bem-vindo/);
+    assert.ok(app.el.querySelector('.blink'), 'o link precisa existir como elemento clicável');
+    assert.equal(app.el.querySelector('.addr').value, 'https://site.com/pagina', 'o endereço reflete a URL final');
+    assert.equal(app.stats.cursor, 1);
+    assert.match(app.el.querySelector('.bmeta').textContent, /200 · 120 B · 7 ms/, 'a barra de estado mostra o que foi medido');
+
+    // Clicar no link navega e empilha histórico; o link era relativo ("/dois").
     app.el.querySelector('.blink').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(30);
-    assert.equal(app.stats.history, 2, 'cada navegação empilha uma entrada');
-    assert.equal(app.stats.cursor, 1);
-    // o link era relativo ("/dois") e a URL final era /pagina → precisa virar absoluto
+    assert.equal(app.stats.history, 3, 'cada navegação empilha uma entrada');
+    assert.equal(app.stats.cursor, 2);
     assert.ok(pedidos.some(u => String(u).includes('%2Fdois') || String(u).includes('/dois')),
-      `a segunda busca precisa acontecer com o link resolvido: ${JSON.stringify(pedidos)}`);
+      `o link relativo precisa ser resolvido antes de buscar: ${JSON.stringify(pedidos)}`);
 
-    // voltar usa o histórico, sem nova busca
+    // Voltar usa o histórico, sem criar entrada nova.
     const buscasAntes = pedidos.length;
     app.el.querySelector('.bar .btn').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(30);
-    assert.equal(app.stats.cursor, 0, 'voltar move o cursor, não cria entrada');
-    assert.equal(app.stats.history, 2);
+    assert.equal(app.stats.cursor, 1, 'voltar move o cursor, não cria entrada');
+    assert.equal(app.stats.history, 3);
     assert.ok(pedidos.length > buscasAntes, 'voltar recarrega a URL anterior');
 
-    // erro mostrado no lugar do conteúdo, com o motivo do servidor
+    // Erro mostrado no lugar do conteúdo, com o motivo do servidor.
     app.openUrl('https://site.com/erro');
     await sleep(30);
     assert.match(app.el.querySelector('.bview').textContent, /host bloqueado: localhost/);

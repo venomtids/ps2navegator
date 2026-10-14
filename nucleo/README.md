@@ -104,6 +104,7 @@ linhas clicáveis, e navegada dentro de uma janela normal do desktop.
 | Recurso | Estado | Como usar |
 |---|---|---|
 | Abrir | funcional | dock **Navegador**, paleta (`Ctrl+K` → *Abrir o navegador do sistema*), ou terminal `browse <endereço>` (alias `navegar`, `www`) |
+| Página inicial | funcional | `about:inicio` — **local, zero requisições**: explica o modo texto, os atalhos e mostra exemplos; abrir o navegador nunca depende da rede |
 | Endereço | funcional | digitar e `Enter`; sem esquema assume `https://`; o que não parece domínio vira busca na Wikipédia |
 | Navegação | funcional | links em néon clicáveis, `←`/`→` (ou `Alt+←`/`Alt+→`), `⟳`/`F5`, `Ctrl+L` para a barra de endereço |
 | Salvar | funcional | botão **Salvar** grava o recurso em `~/Downloads` pelo mesmo instalador (aparece em `ls`, `Arquivos`) |
@@ -126,6 +127,10 @@ ou `browse site.com`        ├─ política de destino (SSRF)          ├─ t
                             ├─ 2 MiB texto · 8 MiB bruto           └─ "Salvar" → ~/Downloads (VMFS)
                             └─ timeout de 15 s
 ```
+
+Se um endereço falhar, o motivo vem da rede e aparece escrito na tela (`ECONNRESET`, DNS, certificado,
+tempo esgotado). Em rede restrita (empresa, escola, sandbox de preview), só saem os destinos que a
+sua rede libera — a interface mostra a razão exata, nunca uma tela branca.
 
 Limites declarados, para ninguém se surpreender: páginas acima de 2 MiB são recortadas em 4000
 linhas (com aviso na tela, não em silêncio); downloads acima de 8 MiB são recusados com o tamanho

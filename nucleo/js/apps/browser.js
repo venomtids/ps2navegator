@@ -19,7 +19,35 @@ import { el, fmtBytes, fmt1 } from '../core/util.js';
 import { renderPage } from '../core/htmltext.js';
 import { svgIcon } from '../ui/icons.js';
 
-const HOME = 'https://pt.wikipedia.org/wiki/Navegador_web';
+/**
+ * Página inicial **local**: nenhuma requisição, nenhum erro de rede na primeira
+ * impressão. Ela existe porque um navegador que abre num site externo mostra
+ * "falha de rede" toda vez que a rede de quem roda o servidor não alcança aquele
+ * site — e a primeira coisa que o usuário veria seria um erro em vez do produto.
+ */
+const HOME = 'about:inicio';
+
+const PAGINA_INICIAL = `<!doctype html><html><head><title>Navegador do sistema — modo texto</title></head><body>
+<h1>Navegador do sistema</h1>
+<p>Este é o navegador do NÚCLEO OS, em <b>modo texto</b>: a página é buscada pelo servidor
+local, convertida em linhas e você navega clicando nos links. Não há layout, CSS, imagens
+pintadas nem JavaScript do site — e ele diz isso em vez de fingir ser um motor gráfico.</p>
+<h2>Como usar</h2>
+<ul>
+<li>Digite um endereço na barra acima e pressione <b>Enter</b> (sem esquema, assume https).</li>
+<li>Quem não parece domínio vira busca: <b>física quântica</b> abre a busca da Wikipédia.</li>
+<li>Voltar e avançar: botões ← → ou Alt+← / Alt+→. Recarregar: ⟳ ou F5. Barra: Ctrl+L.</li>
+<li><b>Salvar</b> grava a página ou o arquivo em ~/Downloads, no disco virtual (veja em <i>Arquivos</i>).</li>
+</ul>
+<h2>Exemplos</h2>
+<ul>
+<li><a href="https://github.com/explore">https://github.com/explore</a> — HTML grande, muitos links.</li>
+<li><a href="https://registry.npmjs.org/jsdom">https://registry.npmjs.org/jsdom</a> — resposta JSON (modo texto simples).</li>
+<li><a href="https://pt.wikipedia.org/wiki/Navegador_web">https://pt.wikipedia.org/wiki/Navegador_web</a> — artigo enciclopédico.</li>
+</ul>
+<p>Alcançar ou não cada site depende da rede de quem roda o servidor: quando um endereço falha,
+a razão exata (ECONNRESET, DNS, certificado, tempo esgotado) aparece na tela, sem arredondar nada.</p>
+</body></html>`;
 
 export function createBrowser({ toast, os, vfs }) {
   const history = [];
@@ -54,6 +82,7 @@ export function createBrowser({ toast, os, vfs }) {
   function toTarget(input) {
     const text = String(input || '').trim();
     if (!text) return null;
+    if (/^about:/i.test(text)) return text;                 // páginas locais do sistema
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return text;
     if (/^[\w-]+(\.[\w-]+)+(\/|$|:)/.test(text)) return `https://${text}`;
     return `https://pt.wikipedia.org/w/index.php?search=${encodeURIComponent(text)}`;
@@ -69,6 +98,18 @@ export function createBrowser({ toast, os, vfs }) {
   async function load(url, { push = true } = {}) {
     const target = typeof url === 'string' ? url : String(url);
     if (busy) return;
+    // `about:…` é local de propósito: zero rede, zero espera, sempre funciona.
+    if (target.startsWith('about:')) {
+      const page = renderPage(PAGINA_INICIAL, { url: target });
+      current = { url: target, page, meta: null, raw: null };
+      if (push) { history.splice(cursor + 1); history.push(target); cursor = history.length - 1; }
+      renderDocument(current);
+      status.textContent = 'página local · 0 requisições · modo texto';
+      address.value = target;
+      save.disabled = true;
+      updateNav();
+      return;
+    }
     setBusy(true);
     view.classList.add('loading');
     try {
@@ -119,7 +160,8 @@ export function createBrowser({ toast, os, vfs }) {
       el('div', { class: 'lbl', text: 'não foi possível abrir' }),
       el('div', { class: 'u mono', text: url }),
       el('div', { class: 'why', text: String(error) }),
-      el('div', { class: 'hint', text: 'o motivo acima é o que o servidor informou — nada é arredondado nem escondido' })
+      el('div', { class: 'hint', text: 'o motivo acima é o que o servidor informou — nada é arredondado nem escondido' }),
+      el('div', { class: 'hint', text: 'dica: rede restrita (empresa, escola, sandbox) bloqueia destinos fora da lista permitida; o motivo acima vem dessa rede, não da interface' })
     ));
     save.disabled = true;
     address.value = url;
