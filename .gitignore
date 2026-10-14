@@ -7,3 +7,7 @@ games/
 tests/installer-fixture-*/
 tests/dashboard.png
 .cache/
+tests/os-dashboard.png
+
+# Imagens de referência do Design System (pesquisa visual, não é arte final)
+docs/refs/

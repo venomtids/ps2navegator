@@ -1,0 +1,70 @@
+/* ============================================================================
+   SECTOR OS — tokens.css
+   Fonte única de verdade visual. Componente que usa literal em vez de var()
+   não passa de revisão (docs/01-design-system.md §11).
+   ========================================================================= */
+:root{
+  color-scheme: dark;
+
+  /* ---- camada VÉU (void) ---- */
+  --void-0:#04070e;
+  --void-1:#070c16;
+
+  /* ---- camada VIDRO (glass) ---- */
+  --glass-1:rgba(9,15,26,.72);
+  --glass-2:rgba(8,14,24,.84);
+  --glass-3:rgba(6,11,20,.92);
+  --glass-solid:rgba(5,9,17,.965);
+
+  /* ---- bordas ---- */
+  --line:rgba(53,240,255,.16);
+  --line-2:rgba(53,240,255,.38);
+  --line-soft:rgba(140,175,205,.12);
+
+  /* ---- tinta ---- */
+  --ink:#dceaf8;
+  --ink-2:#9fb3c8;
+  --ink-3:#6b7f96;
+
+  /* ---- luz (estado) ---- */
+  --neon:#35f0ff;
+  --violet:#a855f7;
+  --lime:#8fff5a;
+  --amber:#ffcf5a;
+  --crit:#ff5470;
+  --hot:#ff3d7f;
+
+  /* ---- raios ---- */
+  --r-1:2px; --r-2:4px; --r-3:6px; --r-4:10px; --r-5:14px;
+
+  /* ---- espaçamento (base 4) ---- */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --sp-5:24px; --sp-6:32px; --sp-7:48px; --sp-8:64px;
+
+  /* ---- blur ---- */
+  --blur-1:12px; --blur-2:18px; --blur-3:24px;
+  --saturate:140%;
+
+  /* ---- elevação ---- */
+  --sh-1:0 1px 2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.03);
+  --sh-2:0 14px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.04);
+  --sh-3:0 28px 70px rgba(0,0,0,.66), inset 0 1px 0 rgba(255,255,255,.05);
+  --glow:0 0 22px rgba(53,240,255,.22);
+
+  /* ---- empilhamento ---- */
+  --z-void:0; --z-icons:5; --z-win:20; --z-bar:40; --z-dock:50;
+  --z-hud:60; --z-modal:80; --z-toast:90; --z-boot:99;
+
+  /* ---- movimento ---- */
+  --t-90:90ms; --t-160:160ms; --t-240:240ms; --t-420:420ms;
+  --e-out:cubic-bezier(.2,.8,.2,1);
+  --e-inout:cubic-bezier(.4,0,.2,1);
+
+  /* ---- tipografia ---- */
+  --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --fs-body:13.5px; --fs-title:13.5px; --fs-label:10px; --fs-mono:12.5px;
+
+  /* ---- layout do shell ---- */
+  --h-status:34px; --h-taskbar:30px; --h-dock:62px; --w-hud:306px;
+}

@@ -141,6 +141,9 @@ app.use('/api/game', require('./game-installer').router(
 // Catálogo local de metadados de PS2 + busca de itens no Internet Archive.
 app.use('/api/catalog', require('./catalog').router());
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+// SECTOR OS — desktop/Virtual PC. Módulos ES servidos crus (sem bundler) e sem CDN.
+app.get('/os', (req, res) => res.sendFile(path.join(__dirname, 'os', 'index.html')));
+app.use('/os', express.static(path.join(__dirname, 'os'), { dotfiles: 'deny', index: 'index.html' }));
 // Coloque um adaptador real e seus assets nesta pasta; não é exposto nenhum outro diretório.
 app.use('/emulator', express.static(path.join(__dirname, 'emulator'), { dotfiles: 'deny' }));
 app.listen(PORT, '0.0.0.0', () => console.log(`Launcher: http://localhost:${PORT}`));

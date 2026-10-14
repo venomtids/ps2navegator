@@ -27,5 +27,11 @@ jobs:
       - name: Testes do catálogo
         run: npm run test:catalog
 
+      - name: Núcleo do SECTOR OS (barramento, VFS, snapshot, WM)
+        run: npm run test:os-core
+
+      - name: Interface do SECTOR OS (DOM real via jsdom)
+        run: npm run test:os-ui
+
       - name: Testes do instalador
         run: npm run test:installer
